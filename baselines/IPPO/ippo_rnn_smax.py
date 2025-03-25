@@ -245,6 +245,7 @@ def compute_trajectory_generalized_jsd(trained_params, config, num_steps=100):
             for i in range(num_agents):
                 for j in range(i+1, num_agents):
                     jsd_val = jensenshannon(distributions[i], distributions[j])
+                    print(jsd_val)
                     pairwise_jsd_matrix[i, j] = jsd_val
                     pairwise_jsd_matrix[j, i] = jsd_val
             
