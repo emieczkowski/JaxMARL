@@ -731,21 +731,26 @@ class SMAX(MultiAgentEnv):
         )(jnp.arange(self.num_agents), actions, keys)
         
         # NEW
-        if actions[1].ndim == 0:  # If it's a scalar, reshape it
+        # Check if actions[1] is a scalar and handle appropriately
+        if hasattr(actions[1], 'shape') and actions[1].shape == ():
+            # If it's a scalar, we're likely dealing with a single agent
             action_array = jnp.array([actions[1]])
         else:
             action_array = actions[1]
 
-        # Get ammo reduction for each team from all agents
-        ammo_reductions = jax.vmap(update_team_ammo)(
-            jnp.arange(self.num_agents), 
-            action_array, 
-            state
+        # Count shooting actions by team directly
+        ally_shots = jnp.sum(
+            (jnp.arange(self.num_agents) < self.num_allies) & 
+            (action_array >= self.num_movement_actions)
         )
-        total_reduction = jnp.sum(ammo_reductions, axis=0)
+        enemy_shots = jnp.sum(
+            (jnp.arange(self.num_agents) >= self.num_allies) & 
+            (action_array >= self.num_movement_actions)
+        )
 
-        # Update team ammo by subtracting the total reduction
-        new_team_ammo = state.team_ammo - total_reduction
+        # Update team ammo
+        new_team_ammo = state.team_ammo.at[0].add(-ally_shots)
+        new_team_ammo = new_team_ammo.at[1].add(-enemy_shots)
         state = state.replace(team_ammo=new_team_ammo)
 
         # Multiple enemies can attack the same unit.
