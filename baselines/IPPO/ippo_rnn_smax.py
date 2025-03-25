@@ -13,6 +13,8 @@ from flax.training.train_state import TrainState
 import distrax
 import hydra
 from omegaconf import DictConfig, OmegaConf
+from scipy.spatial.distance import jensenshannon
+from scipy.stats import entropy
 
 from jaxmarl.wrappers.baselines import SMAXLogWrapper
 from jaxmarl.environments.smax import map_name_to_scenario, HeuristicEnemySMAX
@@ -100,6 +102,202 @@ class Transition(NamedTuple):
     info: jnp.ndarray
     avail_actions: jnp.ndarray
 
+def generalized_jsd(distributions, weights=None):
+    """
+    Compute the generalized Jensen-Shannon Divergence for N distributions.
+    
+    Args:
+        distributions: List of probability distributions (numpy arrays)
+        weights: Optional list of weights for each distribution (default: equal weights)
+        
+    Returns:
+        Generalized JSD value
+    """
+    n = len(distributions)
+    
+    if n == 0:
+        return 0.0
+    
+    if n == 1:
+        return 0.0
+        
+    # Use equal weights if not provided
+    if weights is None:
+        weights = np.ones(n) / n
+    else:
+        # Normalize weights to sum to 1
+        weights = np.array(weights) / np.sum(weights)
+    
+    # Calculate the weighted average distribution
+    mixture = np.zeros_like(distributions[0])
+    for i in range(n):
+        mixture += weights[i] * distributions[i]
+    
+    # Calculate the divergence from each distribution to the mixture
+    divergences = np.zeros(n)
+    for i in range(n):
+        # Kullback-Leibler divergence
+        divergences[i] = entropy(distributions[i], mixture)
+    
+    # Weighted average of the divergences
+    return np.sum(weights * divergences)
+
+def compute_trajectory_generalized_jsd(trained_params, config, num_steps=100):
+    """
+    Compute generalized JSD across all agents over a trajectory and log to wandb
+    
+    Args:
+        trained_params: The trained network parameters
+        config: Configuration dictionary
+        num_steps: Number of steps to run the trajectory
+    """
+    import jax
+    from jaxmarl.environments.smax import map_name_to_scenario
+    from jaxmarl.environments.smax import HeuristicEnemySMAX
+    
+    # Create environment
+    scenario = map_name_to_scenario(config["MAP_NAME"])
+    env = HeuristicEnemySMAX(scenario=scenario, **config["ENV_KWARGS"])
+    
+    # Create random key
+    key = jax.random.PRNGKey(0)
+    key, key_reset = jax.random.split(key)
+    
+    # Reset environment
+    obs, state = env.reset(key_reset)
+    
+    # Initialize RNN hidden state
+    init_hstate = ScannedRNN.initialize_carry(1, config["GRU_HIDDEN_DIM"])
+    
+    # Store JSD values over time
+    generalized_jsd_values = []
+    pairwise_jsd_values = []
+    action_entropy_values = {}
+    
+    # Initialize action entropy tracking for each agent
+    for agent in env.agents[:env.num_allies]:
+        action_entropy_values[agent] = []
+    
+    # Run trajectory
+    for step in range(num_steps):
+        key, key_step = jax.random.split(key)
+        
+        # Get available actions
+        avail_actions = env.get_avail_actions(state)
+        
+        # Extract action distributions for each agent
+        action_probs = {}
+        actions = {}
+        
+        # For allied agents, use trained policy
+        for i, agent in enumerate(env.agents[:env.num_allies]):
+            # Prepare inputs for the network
+            agent_obs = jnp.expand_dims(obs[agent], axis=0)  # Add batch dimension
+            agent_avail = jnp.expand_dims(avail_actions[agent], axis=0)
+            
+            ac_in = (
+                jnp.expand_dims(agent_obs, axis=0),  # Add sequence dimension
+                jnp.zeros((1, 1), dtype=bool),  # No dones for evaluation
+                agent_avail
+            )
+            
+            # Apply network to get policy
+            hstate, pi, _ = ActorCriticRNN(env.action_space(agent).n, config=config).apply(
+                trained_params, init_hstate, ac_in
+            )
+            
+            # Get action probabilities
+            action_probs[agent] = np.array(pi.probs)
+            
+            # Track entropy of each agent's policy
+            agent_entropy = entropy(action_probs[agent])
+            action_entropy_values[agent].append(agent_entropy)
+            
+            # Sample action
+            key, key_action = jax.random.split(key)
+            action = pi.sample(seed=key_action).squeeze()
+            actions[agent] = action
+        
+        # For enemy agents, sample random actions
+        for i, agent in enumerate(env.agents[env.num_allies:], start=env.num_allies):
+            key, key_enemy = jax.random.split(key)
+            actions[agent] = env.action_space(agent).sample(key_enemy)
+        
+        # Compute generalized JSD between all agents
+        distributions = [action_probs[agent] for agent in env.agents[:env.num_allies]]
+        
+        if len(distributions) >= 2:
+            # Compute generalized JSD
+            gen_jsd = generalized_jsd(distributions)
+            generalized_jsd_values.append(gen_jsd)
+            
+            # Also compute pairwise JSD for comparison
+            num_agents = len(distributions)
+            pairwise_jsd_matrix = np.zeros((num_agents, num_agents))
+            
+            for i in range(num_agents):
+                for j in range(i+1, num_agents):
+                    jsd_val = jensenshannon(distributions[i], distributions[j])
+                    pairwise_jsd_matrix[i, j] = jsd_val
+                    pairwise_jsd_matrix[j, i] = jsd_val
+            
+            # Average of pairwise JSDs
+            avg_pairwise_jsd = np.sum(pairwise_jsd_matrix) / (num_agents * (num_agents - 1))
+            pairwise_jsd_values.append(avg_pairwise_jsd)
+        
+        # Step environment
+        obs, state, rewards, done, info = env.step(key_step, state, actions)
+        
+        if done["__all__"]:
+            break
+    
+    # Plot generalized JSD over time
+    plt.figure(figsize=(10, 6))
+    plt.plot(range(len(generalized_jsd_values)), generalized_jsd_values, label='Generalized JSD')
+    
+    if len(pairwise_jsd_values) > 0:
+        plt.plot(range(len(pairwise_jsd_values)), pairwise_jsd_values, label='Avg Pairwise JSD')
+    
+    plt.xlabel('Step')
+    plt.ylabel('JSD Value')
+    plt.title('Generalized JSD Across All Agents Over Time')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    
+    # Log to wandb
+    wandb.log({"generalized_jsd_trajectory": wandb.Image(plt)})
+    plt.close()
+    
+    # Average values
+    avg_gen_jsd = np.mean(generalized_jsd_values) if generalized_jsd_values else 0
+    avg_pairwise_jsd = np.mean(pairwise_jsd_values) if pairwise_jsd_values else 0
+    
+    # Log to wandb as metrics
+    wandb.log({
+        "avg_generalized_jsd": avg_gen_jsd,
+        "avg_pairwise_jsd": avg_pairwise_jsd
+    })
+    
+    # Plot individual agent policy entropy over time
+    plt.figure(figsize=(10, 6))
+    for agent, entropy_values in action_entropy_values.items():
+        plt.plot(range(len(entropy_values)), entropy_values, label=f'{agent}')
+    
+    plt.xlabel('Step')
+    plt.ylabel('Policy Entropy')
+    plt.title('Agent Policy Entropy Over Time')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    
+    # Log to wandb
+    wandb.log({"agent_policy_entropy": wandb.Image(plt)})
+    plt.close()
+    
+    return {
+        'generalized_jsd': generalized_jsd_values,
+        'pairwise_jsd': pairwise_jsd_values,
+        'entropy': action_entropy_values
+    }
 
 def batchify(x: dict, agent_list, num_actors):
     x = jnp.stack([x[a] for a in agent_list])
@@ -599,9 +797,8 @@ def main(config):
     train_jit = jax.jit(make_train(config), device=jax.devices()[0])
     out = train_jit(rng)
 
-    # After training is complete, log a visualization using the trained model
-    trained_params = out["runner_state"][0].params  # Extract trained parameters
-    log_final_visualization(trained_params, config)
+    trained_params = out["runner_state"][0].params
+    compute_trajectory_generalized_jsd(trained_params, config, num_steps=200)
 
     wandb.finish()
 
