@@ -257,19 +257,19 @@ def compute_trajectory_generalized_jsd(trained_params, config, num_steps=100):
     })
     
     # Plot individual agent policy entropy over time
-    plt.figure(figsize=(10, 6))
-    for agent, entropy_values in action_entropy_values.items():
-        plt.plot(range(len(entropy_values)), entropy_values, label=f'{agent}')
+    # plt.figure(figsize=(10, 6))
+    # for agent, entropy_values in action_entropy_values.items():
+    #     plt.plot(range(len(entropy_values)), entropy_values, label=f'{agent}')
     
-    plt.xlabel('Step')
-    plt.ylabel('Policy Entropy')
-    plt.title('Agent Policy Entropy Over Time')
-    plt.legend()
-    plt.grid(True, alpha=0.3)
+    # plt.xlabel('Step')
+    # plt.ylabel('Policy Entropy')
+    # plt.title('Agent Policy Entropy Over Time')
+    # plt.legend()
+    # plt.grid(True, alpha=0.3)
     
-    # Log to wandb
-    wandb.log({"agent_policy_entropy": wandb.Image(plt)})
-    plt.close()
+    # # Log to wandb
+    # wandb.log({"agent_policy_entropy": wandb.Image(plt)})
+    # plt.close()
     
     return {
         'generalized_jsd': generalized_jsd_values,
