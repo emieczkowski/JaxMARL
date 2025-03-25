@@ -128,6 +128,9 @@ def generalized_jsd(distributions, weights=None):
         # Normalize weights to sum to 1
         weights = np.array(weights) / np.sum(weights)
     
+    # Make sure all distributions are numpy arrays with proper shape
+    distributions = [np.array(dist).flatten() for dist in distributions]
+    
     # Calculate the weighted average distribution
     mixture = np.zeros_like(distributions[0])
     for i in range(n):
@@ -136,8 +139,12 @@ def generalized_jsd(distributions, weights=None):
     # Calculate the divergence from each distribution to the mixture
     divergences = np.zeros(n)
     for i in range(n):
-        # Kullback-Leibler divergence
-        divergences[i] = entropy(distributions[i], mixture)
+        # Use KL divergence with explicit loop to avoid shape issues
+        kl_div = 0.0
+        for j in range(len(distributions[i])):
+            if distributions[i][j] > 0 and mixture[j] > 0:
+                kl_div += distributions[i][j] * np.log(distributions[i][j] / mixture[j])
+        divergences[i] = kl_div
     
     # Weighted average of the divergences
     return np.sum(weights * divergences)
