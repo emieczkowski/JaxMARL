@@ -955,7 +955,7 @@ class SMAX(MultiAgentEnv):
             shootable_mask = jax.lax.select(
                 is_alive, shootable_mask, jnp.zeros_like(shootable_mask)
             )
-            shootable_mask = shootable_mask & (state.unit_ammo > 0) # NEW
+            shootable_mask = shootable_mask & (state.unit_ammo[:shootable_mask.shape[0]] > 0) # NEW
             mask = mask.at[self.num_movement_actions :].set(shootable_mask)
             return mask
 
