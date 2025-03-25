@@ -158,27 +158,18 @@ def compute_trajectory_generalized_jsd(trained_params, config, num_steps=100):
         config: Configuration dictionary
         num_steps: Number of steps to run the trajectory
     """
-    import jax
-    from jaxmarl.environments.smax import map_name_to_scenario
-    from jaxmarl.environments.smax import HeuristicEnemySMAX
-    
-    # Create environment
+
     scenario = map_name_to_scenario(config["MAP_NAME"])
     env = HeuristicEnemySMAX(scenario=scenario, **config["ENV_KWARGS"])
     
-    # Create random key
     key = jax.random.PRNGKey(0)
     key, key_reset = jax.random.split(key)
     
     # Reset environment
     obs, state = env.reset(key_reset)
-    
-    # Initialize RNN hidden state
     init_hstate = ScannedRNN.initialize_carry(1, config["GRU_HIDDEN_DIM"])
     
-    # Store JSD values over time
     generalized_jsd_values = []
-    pairwise_jsd_values = []
     action_entropy_values = {}
     
     # Initialize action entropy tracking for each agent
@@ -237,21 +228,6 @@ def compute_trajectory_generalized_jsd(trained_params, config, num_steps=100):
             # Compute generalized JSD
             gen_jsd = generalized_jsd(distributions)
             generalized_jsd_values.append(gen_jsd)
-            
-            # Also compute pairwise JSD for comparison
-            num_agents = len(distributions)
-            pairwise_jsd_matrix = np.zeros((num_agents, num_agents))
-            
-            for i in range(num_agents):
-                for j in range(i+1, num_agents):
-                    jsd_val = jensenshannon(distributions[i], distributions[j])
-                    print(jsd_val)
-                    pairwise_jsd_matrix[i, j] = jsd_val
-                    pairwise_jsd_matrix[j, i] = jsd_val
-            
-            # Average of pairwise JSDs
-            avg_pairwise_jsd = np.sum(pairwise_jsd_matrix) / (num_agents * (num_agents - 1))
-            pairwise_jsd_values.append(avg_pairwise_jsd)
         
         # Step environment
         obs, state, rewards, done, info = env.step(key_step, state, actions)
@@ -263,9 +239,6 @@ def compute_trajectory_generalized_jsd(trained_params, config, num_steps=100):
     plt.figure(figsize=(10, 6))
     plt.plot(range(len(generalized_jsd_values)), generalized_jsd_values, label='Generalized JSD')
     
-    if len(pairwise_jsd_values) > 0:
-        plt.plot(range(len(pairwise_jsd_values)), pairwise_jsd_values, label='Avg Pairwise JSD')
-    
     plt.xlabel('Step')
     plt.ylabel('JSD Value')
     plt.title('Generalized JSD Across All Agents Over Time')
@@ -276,14 +249,11 @@ def compute_trajectory_generalized_jsd(trained_params, config, num_steps=100):
     wandb.log({"generalized_jsd_trajectory": wandb.Image(plt)})
     plt.close()
     
-    # Average values
     avg_gen_jsd = np.mean(generalized_jsd_values) if generalized_jsd_values else 0
-    avg_pairwise_jsd = np.mean(pairwise_jsd_values) if pairwise_jsd_values else 0
     
     # Log to wandb as metrics
     wandb.log({
-        "avg_generalized_jsd": avg_gen_jsd,
-        "avg_pairwise_jsd": avg_pairwise_jsd
+        "avg_generalized_jsd": avg_gen_jsd
     })
     
     # Plot individual agent policy entropy over time
@@ -303,7 +273,6 @@ def compute_trajectory_generalized_jsd(trained_params, config, num_steps=100):
     
     return {
         'generalized_jsd': generalized_jsd_values,
-        'pairwise_jsd': pairwise_jsd_values,
         'entropy': action_entropy_values
     }
 
