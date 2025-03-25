@@ -11,7 +11,7 @@ CONFIG_FILE="/home/workdir/JaxMARL/config.txt"
 
 # Step 2: Extract the Python script path from the config file
 PYTHON_SCRIPT_PATH=$(apptainer exec --nv --bind "$SNAPSHOT_DIR:/home/workdir/JaxMARL" \
-  /scratch/gpfs/rm4057/jaxmarl_latest.sif bash -c "grep 'PYTHON_SCRIPT_PATH' $CONFIG_FILE | cut -d '=' -f 2")
+  /scratch/gpfs/em4240/jaxmarl_latest.sif bash -c "grep 'PYTHON_SCRIPT_PATH' $CONFIG_FILE | cut -d '=' -f 2")
 
 # Step 3: Check if the script path was correctly loaded
 if [ -z "$PYTHON_SCRIPT_PATH" ]; then
@@ -23,7 +23,7 @@ fi
 apptainer exec --nv --bind "$SNAPSHOT_DIR:/home/workdir/JaxMARL" \
   --bind "$SNAPSHOT_DIR:/home/local_workdir/JaxMARL" \
   --env PYTHONPATH=/home/local_workdir/JaxMARL:/home/workdir/JaxMARL \
-  /scratch/gpfs/rm4057/jaxmarl_latest.sif /usr/bin/python3 "/home/workdir/JaxMARL/$PYTHON_SCRIPT_PATH"
+  /scratch/gpfs/em4240/jaxmarl_latest.sif /usr/bin/python3 "/home/workdir/JaxMARL/$PYTHON_SCRIPT_PATH"
 
 # Ensure cleanup runs on script exit
 trap 'rm -rf "$SNAPSHOT_DIR"' EXIT
