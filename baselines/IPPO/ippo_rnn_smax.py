@@ -468,11 +468,11 @@ def make_train(config):
                     except Exception as e2:
                         print(f"Even minimal logging failed: {e2}")
 
-                        metric["update_steps"] = update_steps
-                        jax.experimental.io_callback(callback, None, metric)
-                        update_steps = update_steps + 1
-                        runner_state = (train_state, env_state, last_obs, last_done, hstate, rng)
-                        return (runner_state, update_steps), metric
+            metric["update_steps"] = update_steps
+            jax.experimental.io_callback(callback, None, metric)
+            update_steps = update_steps + 1
+            runner_state = (train_state, env_state, last_obs, last_done, hstate, rng)
+            return (runner_state, update_steps), metric
 
         rng, _rng = jax.random.split(rng)
         runner_state = (
@@ -504,14 +504,6 @@ def main(config):
     rng = jax.random.PRNGKey(config["SEED"])
     train_jit = jax.jit(make_train(config), device=jax.devices()[0])
     out = train_jit(rng)
-
-    # viz = SMAXVisualizer()
-    # filename = f'{config["ENV_NAME"]}_1'
-    # gif_path = f"{filename}.gif"
-    # viz = SMAXVisualizer(env, state_seq)
-    
-    # wandb.log({"animation": wandb.Video(gif_path)})
-
 
 if __name__ == "__main__":
     main()
