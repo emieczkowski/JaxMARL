@@ -20,6 +20,7 @@ from jaxmarl.environments.smax import map_name_to_scenario, HeuristicEnemySMAX
 import wandb
 import functools
 import matplotlib.pyplot as plt
+from jaxmarl.viz.visualizer import Visualizer, SMAXVisualizer
 
 
 class ScannedRNN(nn.Module):
@@ -173,7 +174,6 @@ def make_train(config):
         # TRAIN LOOP
         def _update_step(update_runner_state, unused):
             # COLLECT TRAJECTORIES
-            print("Running update step...")
             runner_state, update_steps = update_runner_state
 
             def _env_step(runner_state, unused):
@@ -412,23 +412,26 @@ def make_train(config):
             rng = update_state[-1]
 
             def callback(metric):
-                print("Metrics: ", metric)
-                wandb.log(
-                    {
-                        # the metrics have an agent dimension, but this is identical
-                        # for all agents so index into the 0th item of that dimension.
-                        "returns": metric["returned_episode_returns"][:, :, 0][
-                            metric["returned_episode"][:, :, 0]
-                        ].mean(),
-                        "win_rate": metric["returned_won_episode"][:, :, 0][
-                            metric["returned_episode"][:, :, 0]
-                        ].mean(),
-                        "env_step": metric["update_steps"]
-                        * config["NUM_ENVS"]
-                        * config["NUM_STEPS"],
-                        **metric["loss"],
-                    }
-                )
+                # Create a dictionary with explicitly converted types
+                log_dict = {
+                    "returns": float(np.array(metric["returned_episode_returns"][:, :, 0][
+                        metric["returned_episode"][:, :, 0]
+                    ].mean())),
+                    "win_rate": float(np.array(metric["returned_won_episode"][:, :, 0][
+                        metric["returned_episode"][:, :, 0]
+                    ].mean())),
+                    "env_step": int(np.array(metric["update_steps"])) * config["NUM_ENVS"] * config["NUM_STEPS"]
+                }
+                
+                # Convert loss values
+                for k, v in metric["loss"].items():
+                    try:
+                        log_dict[k] = float(np.array(v))
+                    except:
+                        # Skip any values that can't be converted
+                        print(f"Warning: Skipping logging for loss key {k}")
+                
+                wandb.log(log_dict)
 
             metric["update_steps"] = update_steps
             jax.experimental.io_callback(callback, None, metric)
@@ -466,6 +469,13 @@ def main(config):
     rng = jax.random.PRNGKey(config["SEED"])
     train_jit = jax.jit(make_train(config), device=jax.devices()[0])
     out = train_jit(rng)
+
+    # viz = SMAXVisualizer()
+    # filename = f'{config["ENV_NAME"]}_1'
+    # gif_path = f"{filename}.gif"
+    # viz = SMAXVisualizer(env, state_seq)
+    
+    # wandb.log({"animation": wandb.Video(gif_path)})
 
 
 if __name__ == "__main__":
