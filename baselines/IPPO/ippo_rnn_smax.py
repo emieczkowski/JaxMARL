@@ -13,6 +13,7 @@ from flax.training.train_state import TrainState
 import distrax
 import hydra
 from omegaconf import DictConfig, OmegaConf
+import time
 
 from jaxmarl.wrappers.baselines import SMAXLogWrapper
 from jaxmarl.environments.smax import map_name_to_scenario, HeuristicEnemySMAX
@@ -109,6 +110,76 @@ def batchify(x: dict, agent_list, num_actors):
 def unbatchify(x: jnp.ndarray, agent_list, num_envs, num_actors):
     x = x.reshape((num_actors, num_envs, -1))
     return {a: x[i] for i, a in enumerate(agent_list)}
+    
+
+def log_episode_visualization(env, episode_data, episode_num, step_num):
+    """
+    Create and log a visualization of an episode to wandb
+    
+    Args:
+        env: The environment
+        episode_data: A list of (key, state, actions) tuples
+        episode_num: The episode number
+        step_num: The current global step count
+    """
+    try:
+        # Create visualizer
+        viz = SMAXVisualizer(env, episode_data)
+        
+        # Save to a temporary file
+        gif_path = f"episode_{episode_num}.gif"
+        viz.animate(view=False, save_fname=gif_path)
+        
+        # Log to wandb
+        wandb.log({
+            "episode_visualization": wandb.Video(gif_path, fps=4, format="gif"),
+            "episode": episode_num,
+            "global_step": step_num
+        })
+        
+        # Clean up the file
+        import os
+        if os.path.exists(gif_path):
+            os.remove(gif_path)
+            
+    except Exception as e:
+        print(f"Error creating visualization: {e}")
+
+
+def capture_episode_for_visualization(env, rng, policy_fn, num_steps=100):
+    """
+    Capture an episode for visualization
+    
+    Args:
+        env: The environment
+        rng: The random key
+        policy_fn: Function that takes (params, state, obs) and returns actions
+        num_steps: Maximum number of steps to record
+        
+    Returns:
+        List of (key, state, actions) tuples
+    """
+    rng, key_reset = jax.random.split(rng)
+    obs, state = env.reset(key_reset)
+    
+    state_seq = []
+    
+    for _ in range(num_steps):
+        rng, key_step = jax.random.split(rng)
+        
+        # Get actions using policy
+        actions = policy_fn(state, obs)
+        
+        # Store state and actions
+        state_seq.append((key_step, state, actions))
+        
+        # Step environment
+        obs, state, rewards, dones, infos = env.step(key_step, state, actions)
+        
+        if dones["__all__"]:
+            break
+            
+    return state_seq
 
 
 def make_train(config):
@@ -429,10 +500,10 @@ def make_train(config):
             #         }
             #     )
             def callback(metric):
-                # Create a completely new dictionary with only basic Python types
-                safe_dict = {}
-                
                 try:
+                    # Create a completely new dictionary with only basic Python types
+                    safe_dict = {}
+                    
                     # Convert each value individually with explicit error handling
                     returns = metric["returned_episode_returns"][:, :, 0][metric["returned_episode"][:, :, 0]]
                     returns_np = np.array(returns)  # Convert to numpy
@@ -457,6 +528,75 @@ def make_train(config):
                     
                     # Log the safe dictionary
                     wandb.log(safe_dict)
+                    
+                    # Periodically capture and log a visualization
+                    # Only log every N updates to avoid overwhelming storage
+                    current_step = int(update_steps_np)
+                    if current_step % config.get("VIZ_LOG_FREQUENCY", 50) == 0:
+                        # Create a copy of the environment for visualization
+                        scenario = map_name_to_scenario(config["MAP_NAME"])
+                        viz_env = HeuristicEnemySMAX(scenario=scenario, **config["ENV_KWARGS"])
+                        
+                        # Create a policy function for visualization
+                        def policy_fn(state, obs):
+                            # Get available actions
+                            avail_actions = viz_env.get_avail_actions(state)
+                            
+                            # Apply the trained policy
+                            actions = {}
+                            hstate = ScannedRNN.initialize_carry(1, config["GRU_HIDDEN_DIM"])
+                            
+                            for agent_idx, agent in enumerate(viz_env.agents):
+                                if agent_idx < viz_env.num_allies:  # Only for allies
+                                    agent_obs = obs[agent][np.newaxis, :]
+                                    agent_avail = avail_actions[agent][np.newaxis, :]
+                                    ac_in = (
+                                        agent_obs[np.newaxis, :],
+                                        jnp.zeros((1, 1), dtype=bool),
+                                        agent_avail
+                                    )
+                                    
+                                    # Use the trained policy
+                                    _, pi, _ = network.apply(
+                                        train_state.params,
+                                        hstate,
+                                        ac_in
+                                    )
+                                    
+                                    # Sample action
+                                    rng_viz = jax.random.PRNGKey(int(time.time() * 1000) % 2**32)
+                                    actions[agent] = pi.sample(seed=rng_viz).squeeze()
+                                else:
+                                    # For enemies, use random actions
+                                    rng_viz = jax.random.PRNGKey(int(time.time() * 1000) % 2**32)
+                                    actions[agent] = viz_env.action_space(agent).sample(rng_viz)
+                                    
+                            return actions
+                        
+                        # Capture an episode
+                        viz_rng = jax.random.PRNGKey(int(time.time() * 1000) % 2**32)
+                        episode_data = capture_episode_for_visualization(
+                            viz_env, viz_rng, policy_fn, num_steps=100
+                        )
+                        
+                        # Log the visualization
+                        log_episode_visualization(
+                            viz_env, episode_data, 
+                            episode_num=current_step // config.get("VIZ_LOG_FREQUENCY", 50),
+                            step_num=current_step * config["NUM_ENVS"] * config["NUM_STEPS"]
+                        )
+                        
+                        # Log training performance curve
+                        if hasattr(metric, "returned_episode_returns") and len(metric["returned_episode_returns"]) > 0:
+                            plt.figure(figsize=(10, 5))
+                            plt.plot(metric["returned_episode_returns"][:, :, 0].mean(axis=1))
+                            plt.title("Episode Returns")
+                            plt.xlabel("Step")
+                            plt.ylabel("Return")
+                            plt.tight_layout()
+                            wandb.log({"returns_curve": wandb.Image(plt)})
+                            plt.close()
+                    
                     print("Successfully logged metrics")
                     
                 except Exception as e:
