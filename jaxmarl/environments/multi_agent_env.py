@@ -59,10 +59,10 @@ class MultiAgentEnv(object):
             obs_re = self.get_obs(states_re)
 
         # Auto-reset environment based on termination
-        states = jax.tree.map(
+        states = jax.tree_util.tree_map(
             lambda x, y: jax.lax.select(dones["__all__"], x, y), states_re, states_st
         )
-        obs = jax.tree.map(
+        obs = jax.tree_util.tree_map(
             lambda x, y: jax.lax.select(dones["__all__"], x, y), obs_re, obs_st
         )
         return obs, states, rewards, dones, infos
