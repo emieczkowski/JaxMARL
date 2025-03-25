@@ -25,6 +25,7 @@ class State:
     unit_health: chex.Array
     unit_types: chex.Array
     unit_weapon_cooldowns: chex.Array
+    unit_ammo: chex.Array # NEW
     prev_movement_actions: chex.Array
     prev_attack_actions: chex.Array
     time: int
@@ -113,6 +114,7 @@ class SMAX(MultiAgentEnv):
         self,
         num_allies=5,
         num_enemies=5,
+        initial_ammo=10, # NEW
         map_width=32,
         map_height=32,
         world_steps_per_env_step=8,
@@ -146,6 +148,7 @@ class SMAX(MultiAgentEnv):
     ) -> None:
         self.num_allies = num_allies if scenario is None else scenario.num_allies
         self.num_enemies = num_enemies if scenario is None else scenario.num_enemies
+        self.initial_ammo = initial_ammo # NEW
         self.num_agents = self.num_allies + self.num_enemies
         self.walls_cause_death = walls_cause_death
         self.unit_type_names = unit_type_names
@@ -293,11 +296,13 @@ class SMAX(MultiAgentEnv):
             self.smacv2_unit_type_generation, generated_unit_types, unit_types
         )
         unit_health = self.unit_type_health[unit_types]
+        unit_ammo = jnp.full((self.num_agents,), self.initial_ammo, dtype=jnp.int32) # NEW
         state = State(
             unit_positions=unit_positions,
             unit_alive=jnp.ones((self.num_agents,), dtype=jnp.bool_),
             unit_teams=unit_teams,
             unit_health=unit_health,
+            unit_ammo=unit_ammo, # NEW
             unit_types=unit_types,
             prev_movement_actions=jnp.zeros((self.num_agents, 2)),
             prev_attack_actions=jnp.zeros((self.num_agents,), dtype=jnp.int32),
@@ -645,6 +650,17 @@ class SMAX(MultiAgentEnv):
                 jnp.zeros((2,)),
             )
             return new_pos
+        
+        # NEW
+        def update_agent_ammo(idx, action, state):
+            """Reduces ammo when an agent attacks."""
+            is_shooting = action >= self.num_movement_actions  # True if action is an attack
+            new_ammo = jax.lax.cond(
+                is_shooting & (state.unit_ammo[idx] > 0),  # Reduce only if ammo > 0
+                lambda: jax.lax.max(0, state.unit_ammo[idx] - 1),  # Ensure ammo doesn't go negative
+                lambda: state.unit_ammo[idx]  # Otherwise, keep ammo unchanged
+            )
+            return new_ammo
 
         def update_agent_health(idx, action, key):
             # for team 1, their attack actions are labelled in
@@ -709,6 +725,11 @@ class SMAX(MultiAgentEnv):
         pos, (health_diff, attacked_idxes), cooldown_diff = jax.vmap(
             perform_agent_action
         )(jnp.arange(self.num_agents), actions, keys)
+        
+        # NEW
+        new_ammo = jax.vmap(update_agent_ammo)(jnp.arange(self.num_agents), actions[1], state)
+        state = state.replace(unit_ammo=new_ammo)
+
         # Multiple enemies can attack the same unit.
         # We have `(health_diff, attacked_idx)` pairs.
         # `jax.lax.scatter_add` aggregates these exactly
@@ -934,6 +955,7 @@ class SMAX(MultiAgentEnv):
             shootable_mask = jax.lax.select(
                 is_alive, shootable_mask, jnp.zeros_like(shootable_mask)
             )
+            shootable_mask = shootable_mask & (state.unit_ammo > 0) # NEW
             mask = mask.at[self.num_movement_actions :].set(shootable_mask)
             return mask
 

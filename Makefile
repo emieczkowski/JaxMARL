@@ -25,6 +25,9 @@ build:
 run:
 	$(DOCKER_RUN) /bin/bash
 
+run-smac:
+	$(DOCKER_RUN) /bin/bash -c "python -u baselines/IPPO/ippo_rnn_smax.py"
+
 test:
 	$(DOCKER_RUN) /bin/bash -c "pytest ./tests/"
 
