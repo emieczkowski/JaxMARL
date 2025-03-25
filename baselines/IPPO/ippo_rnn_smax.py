@@ -411,33 +411,68 @@ def make_train(config):
             
             rng = update_state[-1]
 
+            # def callback(metric):
+            #     wandb.log(
+            #         {
+            #             # the metrics have an agent dimension, but this is identical
+            #             # for all agents so index into the 0th item of that dimension.
+            #             "returns": metric["returned_episode_returns"][:, :, 0][
+            #                 metric["returned_episode"][:, :, 0]
+            #             ].mean(),
+            #             "win_rate": metric["returned_won_episode"][:, :, 0][
+            #                 metric["returned_episode"][:, :, 0]
+            #             ].mean(),
+            #             "env_step": metric["update_steps"]
+            #             * config["NUM_ENVS"]
+            #             * config["NUM_STEPS"],
+            #             **metric["loss"],
+            #         }
+            #     )
             def callback(metric):
-                # Create a dictionary with explicitly converted types
-                log_dict = {
-                    "returns": float(np.array(metric["returned_episode_returns"][:, :, 0][
-                        metric["returned_episode"][:, :, 0]
-                    ].mean())),
-                    "win_rate": float(np.array(metric["returned_won_episode"][:, :, 0][
-                        metric["returned_episode"][:, :, 0]
-                    ].mean())),
-                    "env_step": int(np.array(metric["update_steps"])) * config["NUM_ENVS"] * config["NUM_STEPS"]
-                }
+                # Create a completely new dictionary with only basic Python types
+                safe_dict = {}
                 
-                # Convert loss values
-                for k, v in metric["loss"].items():
+                try:
+                    # Convert each value individually with explicit error handling
+                    returns = metric["returned_episode_returns"][:, :, 0][metric["returned_episode"][:, :, 0]]
+                    returns_np = np.array(returns)  # Convert to numpy
+                    safe_dict["returns"] = float(returns_np.mean())
+                    
+                    win_rate = metric["returned_won_episode"][:, :, 0][metric["returned_episode"][:, :, 0]]
+                    win_rate_np = np.array(win_rate)  # Convert to numpy
+                    safe_dict["win_rate"] = float(win_rate_np.mean())
+                    
+                    update_steps_np = np.array(metric["update_steps"])
+                    safe_dict["env_step"] = int(update_steps_np) * config["NUM_ENVS"] * config["NUM_STEPS"]
+                    
+                    # Process loss dictionary
+                    for k, v in metric["loss"].items():
+                        if v is None:
+                            continue  # Skip None values
+                        try:
+                            v_np = np.array(v)
+                            safe_dict[k] = float(v_np)
+                        except Exception as e:
+                            print(f"Error converting loss[{k}]: {e}")
+                    
+                    # Log the safe dictionary
+                    wandb.log(safe_dict)
+                    print("Successfully logged metrics")
+                    
+                except Exception as e:
+                    print(f"Error in wandb logging: {e}")
+                    # Try minimal logging
                     try:
-                        log_dict[k] = float(np.array(v))
-                    except:
-                        # Skip any values that can't be converted
-                        print(f"Warning: Skipping logging for loss key {k}")
-                
-                wandb.log(log_dict)
+                        wandb.log({"update": int(np.array(metric["update_steps"]))})
+                        print("Minimal logging successful")
+                    except Exception as e2:
+                        print(f"Even minimal logging failed: {e2}")
 
-            metric["update_steps"] = update_steps
-            jax.experimental.io_callback(callback, None, metric)
-            update_steps = update_steps + 1
-            runner_state = (train_state, env_state, last_obs, last_done, hstate, rng)
-            return (runner_state, update_steps), metric
+                        metric["update_steps"] = update_steps
+                        jax.experimental.io_callback(callback, None, metric)
+                        update_steps = update_steps + 1
+                        runner_state = (train_state, env_state, last_obs, last_done, hstate, rng)
+                        return (runner_state, update_steps), metric
 
         rng, _rng = jax.random.split(rng)
         runner_state = (
