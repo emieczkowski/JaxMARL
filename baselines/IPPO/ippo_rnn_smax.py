@@ -410,23 +410,44 @@ def make_train(config):
             
             rng = update_state[-1]
 
+            # def callback(metric):
+            #     wandb.log(
+            #         {
+            #             # the metrics have an agent dimension, but this is identical
+            #             # for all agents so index into the 0th item of that dimension.
+            #             "returns": metric["returned_episode_returns"][:, :, 0][
+            #                 metric["returned_episode"][:, :, 0]
+            #             ].mean(),
+            #             "win_rate": metric["returned_won_episode"][:, :, 0][
+            #                 metric["returned_episode"][:, :, 0]
+            #             ].mean(),
+            #             "env_step": metric["update_steps"]
+            #             * config["NUM_ENVS"]
+            #             * config["NUM_STEPS"],
+            #             **metric["loss"],
+            #         }
+            #     )
+
             def callback(metric):
-                wandb.log(
-                    {
-                        # the metrics have an agent dimension, but this is identical
-                        # for all agents so index into the 0th item of that dimension.
-                        "returns": metric["returned_episode_returns"][:, :, 0][
-                            metric["returned_episode"][:, :, 0]
-                        ].mean(),
-                        "win_rate": metric["returned_won_episode"][:, :, 0][
-                            metric["returned_episode"][:, :, 0]
-                        ].mean(),
-                        "env_step": metric["update_steps"]
-                        * config["NUM_ENVS"]
-                        * config["NUM_STEPS"],
-                        **metric["loss"],
-                    }
-                )
+                # Create a new dictionary with all JAX arrays converted to NumPy
+                log_dict = {
+                    "returns": float(metric["returned_episode_returns"][:, :, 0][
+                        metric["returned_episode"][:, :, 0]
+                    ].mean()),
+                    "win_rate": float(metric["returned_won_episode"][:, :, 0][
+                        metric["returned_episode"][:, :, 0]
+                    ].mean()),
+                    "env_step": int(metric["update_steps"]) * config["NUM_ENVS"] * config["NUM_STEPS"],
+                }
+                
+                # Handle the loss dictionary separately
+                for k, v in metric["loss"].items():
+                    if hasattr(v, "item"):  # If it's a single-element array
+                        log_dict[k] = v.item()
+                    else:
+                        log_dict[k] = float(v)
+                
+                wandb.log(log_dict)
 
             metric["update_steps"] = update_steps
             jax.experimental.io_callback(callback, None, metric)
