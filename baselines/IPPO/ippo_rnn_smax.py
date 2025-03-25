@@ -431,7 +431,6 @@ def make_train(config):
                 )
 
             metric["update_steps"] = update_steps
-            wandb.log({"debug_update_steps": update_steps})
             jax.experimental.io_callback(callback, None, metric)
             update_steps = update_steps + 1
             runner_state = (train_state, env_state, last_obs, last_done, hstate, rng)
