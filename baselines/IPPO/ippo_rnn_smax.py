@@ -797,9 +797,7 @@ def main(config):
     train_jit = jax.jit(make_train(config), device=jax.devices()[0])
     out = train_jit(rng)
 
-    runner_state = out["runner_state"]
-    train_state = runner_state[0]
-    print(runner_state)
+    train_state = out["runner_state"][0][0]  
     trained_params = train_state.params
     # trained_params = out["runner_state"][0].params
     compute_trajectory_generalized_jsd(trained_params, config, num_steps=200)
