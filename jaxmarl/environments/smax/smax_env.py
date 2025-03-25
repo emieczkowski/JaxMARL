@@ -652,17 +652,19 @@ class SMAX(MultiAgentEnv):
             return new_pos
         
         # NEW
-        def update_team_ammo(idx, action, state):
-            """Reduces the team's shared ammo pool when an agent fires."""
-            is_shooting = action >= self.num_movement_actions
-            team_idx = (idx >= self.num_allies).astype(jnp.int32)  # 0 = allies, 1 = enemies
-
-            new_team_ammo = jax.lax.cond(
-                is_shooting & (state.team_ammo[team_idx] > 0),
-                lambda: state.team_ammo.at[team_idx].set(jax.lax.max(0, state.team_ammo[team_idx] - 1)),
-                lambda: state.team_ammo,
-            )
-            return new_team_ammo
+        def update_team_ammo(agent_idx, action, state):
+            # Determine which team the agent belongs to
+            is_enemy = agent_idx >= self.num_allies
+            team_idx = jnp.where(is_enemy, 1, 0)
+            
+            # Check if the action is a shooting action
+            is_shoot_action = action >= self.num_movement_actions
+            
+            # Decrease ammo only when shooting
+            team_ammo = state.team_ammo
+            updated_ammo = team_ammo.at[team_idx].add(-1 * is_shoot_action)
+            
+            return updated_ammo
 
         def update_agent_health(idx, action, key):
             # for team 1, their attack actions are labelled in
@@ -729,7 +731,21 @@ class SMAX(MultiAgentEnv):
         )(jnp.arange(self.num_agents), actions, keys)
         
         # NEW
-        new_team_ammo = jax.vmap(update_team_ammo)(jnp.arange(self.num_agents), actions[1], state)
+        if actions[1].ndim == 0:  # If it's a scalar, reshape it
+            action_array = jnp.array([actions[1]])
+        else:
+            action_array = actions[1]
+
+        # Get ammo reduction for each team from all agents
+        ammo_reductions = jax.vmap(update_team_ammo)(
+            jnp.arange(self.num_agents), 
+            action_array, 
+            state
+        )
+        total_reduction = jnp.sum(ammo_reductions, axis=0)
+
+        # Update team ammo by subtracting the total reduction
+        new_team_ammo = state.team_ammo - total_reduction
         state = state.replace(team_ammo=new_team_ammo)
 
         # Multiple enemies can attack the same unit.
