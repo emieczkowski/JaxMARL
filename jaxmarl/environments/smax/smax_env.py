@@ -958,9 +958,7 @@ class SMAX(MultiAgentEnv):
                 is_alive, shootable_mask, jnp.zeros_like(shootable_mask)
             )
             team_idx = jnp.arange(self.num_agents) >= self.num_allies # 0 = allies, 1 = enemies
-            team_ammo = jax.lax.select(
-                team_idx, state.team_ammo[1], state.team_ammo[0]
-            )
+            team_ammo = state.team_ammo[team]
             shootable_mask = shootable_mask & (team_ammo > 0) # NEW
             mask = mask.at[self.num_movement_actions :].set(shootable_mask)
             return mask
