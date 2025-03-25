@@ -114,7 +114,7 @@ class SMAX(MultiAgentEnv):
         self,
         num_allies=5,
         num_enemies=5,
-        initial_ammo=10, # NEW
+        initial_ammo=100, # NEW
         map_width=32,
         map_height=32,
         world_steps_per_env_step=8,
@@ -650,21 +650,6 @@ class SMAX(MultiAgentEnv):
                 jnp.zeros((2,)),
             )
             return new_pos
-        
-        # NEW
-        def update_team_ammo(agent_idx, action, state):
-            # Determine which team the agent belongs to
-            is_enemy = agent_idx >= self.num_allies
-            team_idx = jnp.where(is_enemy, 1, 0)
-            
-            # Check if the action is a shooting action
-            is_shoot_action = action >= self.num_movement_actions
-            
-            # Decrease ammo only when shooting
-            team_ammo = state.team_ammo
-            updated_ammo = team_ammo.at[team_idx].add(-1 * is_shoot_action)
-            
-            return updated_ammo
 
         def update_agent_health(idx, action, key):
             # for team 1, their attack actions are labelled in

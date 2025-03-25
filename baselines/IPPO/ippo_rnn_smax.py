@@ -504,6 +504,7 @@ def main(config):
     rng = jax.random.PRNGKey(config["SEED"])
     train_jit = jax.jit(make_train(config), device=jax.devices()[0])
     out = train_jit(rng)
+    wandb.finish()
 
 if __name__ == "__main__":
     main()
