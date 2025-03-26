@@ -670,23 +670,6 @@ def make_train(config):
             
             rng = update_state[-1]
 
-            # def callback(metric):
-            #     wandb.log(
-            #         {
-            #             # the metrics have an agent dimension, but this is identical
-            #             # for all agents so index into the 0th item of that dimension.
-            #             "returns": metric["returned_episode_returns"][:, :, 0][
-            #                 metric["returned_episode"][:, :, 0]
-            #             ].mean(),
-            #             "win_rate": metric["returned_won_episode"][:, :, 0][
-            #                 metric["returned_episode"][:, :, 0]
-            #             ].mean(),
-            #             "env_step": metric["update_steps"]
-            #             * config["NUM_ENVS"]
-            #             * config["NUM_STEPS"],
-            #             **metric["loss"],
-            #         }
-            #     )
             def callback(metric):
                 # Create a completely new dictionary with only basic Python types
                 safe_dict = {}
@@ -768,7 +751,7 @@ def main(config):
     trained_params = train_state.params
     compute_trajectory_generalized_jsd(trained_params, config, num_steps=200)
 
-    scenario = map_name_to_scenario("10m_vs_11m")
+    scenario = map_name_to_scenario("2s3z")
     env = make(
         "HeuristicEnemySMAX",
         scenario=scenario,
