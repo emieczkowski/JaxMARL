@@ -284,15 +284,17 @@ def compute_trajectory_generalized_jsd(trained_params, config, num_steps=100):
         for agent in env.agents
     }
     
-    print(action_logs)
+    for agent, table in action_logs.items():
+        print(f"Action sequence for {agent}:")
+        
+        table_data = table.data
+        for row in table_data:
+            print(row)
 
     wandb.log({
         "avg_generalized_jsd": avg_gen_jsd,
         # **{f"action_sequence/{agent}": action_logs[agent] for agent in env.agents}
     })
-
-    for agent, table in action_logs.items():
-        wandb.log({f"action_sequence/{agent}": table})
     
     return {
         'generalized_jsd': generalized_jsd_values,
