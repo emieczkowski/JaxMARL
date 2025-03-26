@@ -25,7 +25,6 @@ class State:
     unit_health: chex.Array
     unit_types: chex.Array
     unit_weapon_cooldowns: chex.Array
-    team_ammo: chex.Array # NEW
     prev_movement_actions: chex.Array
     prev_attack_actions: chex.Array
     time: int
@@ -69,6 +68,7 @@ MAP_NAME_TO_SCENARIO = {
         False,
     ),
     "8m": Scenario(jnp.zeros((16,), dtype=jnp.uint8), 8, 8, False, False),
+    "2m_vs_2m": Scenario(jnp.zeros((4,), dtype=jnp.uint8), 2, 2, False, False),
     "5m_vs_6m": Scenario(jnp.zeros((11,), dtype=jnp.uint8), 5, 6, False, False),
     "10m_vs_11m": Scenario(jnp.zeros((21,), dtype=jnp.uint8), 10, 11, False, False),
     "27m_vs_30m": Scenario(jnp.zeros((57,), dtype=jnp.uint8), 27, 30, False, False),
@@ -114,7 +114,6 @@ class SMAX(MultiAgentEnv):
         self,
         num_allies=5,
         num_enemies=5,
-        initial_ammo=1000, # NEW
         map_width=32,
         map_height=32,
         world_steps_per_env_step=8,
@@ -148,7 +147,6 @@ class SMAX(MultiAgentEnv):
     ) -> None:
         self.num_allies = num_allies if scenario is None else scenario.num_allies
         self.num_enemies = num_enemies if scenario is None else scenario.num_enemies
-        self.initial_ammo = initial_ammo # NEW
         self.num_agents = self.num_allies + self.num_enemies
         self.walls_cause_death = walls_cause_death
         self.unit_type_names = unit_type_names
@@ -296,13 +294,11 @@ class SMAX(MultiAgentEnv):
             self.smacv2_unit_type_generation, generated_unit_types, unit_types
         )
         unit_health = self.unit_type_health[unit_types]
-        team_ammo = jnp.array([self.initial_ammo, self.initial_ammo], dtype=jnp.int32) # NEW
         state = State(
             unit_positions=unit_positions,
             unit_alive=jnp.ones((self.num_agents,), dtype=jnp.bool_),
             unit_teams=unit_teams,
             unit_health=unit_health,
-            team_ammo=team_ammo, # NEW
             unit_types=unit_types,
             prev_movement_actions=jnp.zeros((self.num_agents, 2)),
             prev_attack_actions=jnp.zeros((self.num_agents,), dtype=jnp.int32),
@@ -714,30 +710,6 @@ class SMAX(MultiAgentEnv):
         pos, (health_diff, attacked_idxes), cooldown_diff = jax.vmap(
             perform_agent_action
         )(jnp.arange(self.num_agents), actions, keys)
-        
-        # NEW
-        # Check if actions[1] is a scalar and handle appropriately
-        if hasattr(actions[1], 'shape') and actions[1].shape == ():
-            # If it's a scalar, we're likely dealing with a single agent
-            action_array = jnp.array([actions[1]])
-        else:
-            action_array = actions[1]
-
-        # Count shooting actions by team directly
-        ally_shots = jnp.sum(
-            (jnp.arange(self.num_agents) < self.num_allies) & 
-            (action_array >= self.num_movement_actions)
-        )
-        enemy_shots = jnp.sum(
-            (jnp.arange(self.num_agents) >= self.num_allies) & 
-            (action_array >= self.num_movement_actions)
-        )
-
-        # Update team ammo
-        new_team_ammo = state.team_ammo.at[0].add(-ally_shots)
-        new_team_ammo = new_team_ammo.at[1].add(-enemy_shots)
-        state = state.replace(team_ammo=new_team_ammo)
-
         # Multiple enemies can attack the same unit.
         # We have `(health_diff, attacked_idx)` pairs.
         # `jax.lax.scatter_add` aggregates these exactly
@@ -963,9 +935,6 @@ class SMAX(MultiAgentEnv):
             shootable_mask = jax.lax.select(
                 is_alive, shootable_mask, jnp.zeros_like(shootable_mask)
             )
-            team_idx = jnp.arange(self.num_agents) >= self.num_allies # 0 = allies, 1 = enemies
-            team_ammo = state.team_ammo[team]
-            shootable_mask = shootable_mask & (team_ammo > 0) # NEW
             mask = mask.at[self.num_movement_actions :].set(shootable_mask)
             return mask
 
