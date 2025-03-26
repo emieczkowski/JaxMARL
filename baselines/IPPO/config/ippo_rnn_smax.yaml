@@ -15,7 +15,7 @@
 "MAX_GRAD_NORM": 0.25
 "ACTIVATION": "relu"
 "ENV_NAME": "HeuristicEnemySMAX"
-"MAP_NAME": "2s3z"
+"MAP_NAME": "10m_vs_11m"
 "SEED": 0
 "ENV_KWARGS": 
   "see_enemy_actions": True

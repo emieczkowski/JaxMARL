@@ -15,6 +15,7 @@ import hydra
 from omegaconf import DictConfig, OmegaConf
 from scipy.spatial.distance import jensenshannon
 from scipy.stats import entropy
+from jaxmarl import make
 
 from jaxmarl.wrappers.baselines import SMAXLogWrapper
 from jaxmarl.environments.smax import map_name_to_scenario, HeuristicEnemySMAX
@@ -101,6 +102,46 @@ class Transition(NamedTuple):
     obs: jnp.ndarray
     info: jnp.ndarray
     avail_actions: jnp.ndarray
+
+class LearnedPolicy(nn.Module):
+    action_dim: int
+    activation: str = "tanh"
+
+    @nn.compact
+    def __call__(self, x):
+        activation = nn.relu if self.activation == "relu" else nn.tanh
+        actor_mean = nn.Dense(self.action_dim)(x)
+        actor_mean = activation(actor_mean)
+        pi = distrax.Categorical(logits=actor_mean)
+
+        critic = nn.Dense(1)(x)
+        critic = activation(critic)
+
+        return pi, jnp.squeeze(critic, axis=-1)
+    
+def rollout(env, trained_params, max_steps=15, key=jax.random.PRNGKey(2)):
+    """Run a rollout using the trained policy."""
+    obs, state = env.reset(key)
+    state_seq = []
+    returns = {a: 0 for a in env.agents}
+
+    key_a = jax.random.split(key, env.num_agents)
+    actions = {agent: env.action_space(agent).sample(key_a[i]) for i, agent in enumerate(env.agents)}
+
+    for _ in range(max_steps):
+        key, key_s, key_seq = jax.random.split(key, 3)
+        key_a = jax.random.split(key_seq, env.num_agents)
+        
+        actions = {agent: env.action_space(agent).sample(key_a[i]) for i, agent in enumerate(env.agents)}
+        state_seq.append((key_s, state, actions))
+
+        obs, state, rewards, dones, infos = env.step(key_s, state, actions)
+        returns = {a: returns[a] + rewards[a] for a in env.agents}
+        if dones["__all__"]:
+            break
+
+    print(f"Returns: {returns}")
+    return state_seq
 
 def generalized_jsd(distributions, weights=None):
     """
@@ -761,8 +802,27 @@ def main(config):
 
     train_state = out["runner_state"][0][0]  
     trained_params = train_state.params
-    # trained_params = out["runner_state"][0].params
     compute_trajectory_generalized_jsd(trained_params, config, num_steps=200)
+
+    scenario = map_name_to_scenario("10m_vs_11m")
+    env = make(
+        "HeuristicEnemySMAX",
+        scenario=scenario,
+        use_self_play_reward=False,
+        walls_cause_death=True,
+        see_enemy_actions=True,
+        action_type="continuous",
+        observation_type="conic"
+    )
+
+    state_seq = rollout(env, trained_params)
+
+    viz = SMAXVisualizer(env, state_seq)
+    gif_filename = "rollout.gif"
+    viz.animate(view=False, save_fname=gif_filename)
+
+    # Log the rollout animation to wandb
+    wandb.log({"rollout_animation": wandb.Video(gif_filename, format="gif")})
 
     wandb.finish()
 
