@@ -146,13 +146,6 @@ def rollout(env, trained_params, max_steps=15, key=jax.random.PRNGKey(2)):
 def generalized_jsd(distributions, weights=None):
     """
     Compute the generalized Jensen-Shannon Divergence for N distributions.
-    
-    Args:
-        distributions: List of probability distributions (numpy arrays)
-        weights: Optional list of weights for each distribution (default: equal weights)
-        
-    Returns:
-        Generalized JSD value
     """
     n = len(distributions)
     
@@ -162,42 +155,31 @@ def generalized_jsd(distributions, weights=None):
     if n == 1:
         return 0.0
         
-    # Use equal weights if not provided
     if weights is None:
         weights = np.ones(n) / n
     else:
-        # Normalize weights to sum to 1
         weights = np.array(weights) / np.sum(weights)
-    
-    # Make sure all distributions are numpy arrays with proper shape
+
     distributions = [np.array(dist).flatten() for dist in distributions]
     
-    # Calculate the weighted average distribution
     mixture = np.zeros_like(distributions[0])
     for i in range(n):
         mixture += weights[i] * distributions[i]
     
-    # Calculate the divergence from each distribution to the mixture
     divergences = np.zeros(n)
     for i in range(n):
-        # Use KL divergence with explicit loop to avoid shape issues
+        # KL divergence from distribution i to the mixture
         kl_div = 0.0
         for j in range(len(distributions[i])):
             if distributions[i][j] > 0 and mixture[j] > 0:
                 kl_div += distributions[i][j] * np.log(distributions[i][j] / mixture[j])
         divergences[i] = kl_div
     
-    # Weighted average of the divergences
     return np.sum(weights * divergences)
 
 def compute_trajectory_generalized_jsd(trained_params, config, num_steps=100):
     """
     Compute generalized JSD across all agents over a trajectory and log to wandb
-    
-    Args:
-        trained_params: The trained network parameters
-        config: Configuration dictionary
-        num_steps: Number of steps to run the trajectory
     """
 
     scenario = map_name_to_scenario(config["MAP_NAME"])
@@ -217,11 +199,7 @@ def compute_trajectory_generalized_jsd(trained_params, config, num_steps=100):
     
     for step in range(num_steps):
         key, key_step = jax.random.split(key)
-        
-        # Get available actions
         avail_actions = env.get_avail_actions(state)
-        
-        # Extract action distributions for each agent
         action_probs = {}
         actions = {}
         
@@ -293,7 +271,6 @@ def compute_trajectory_generalized_jsd(trained_params, config, num_steps=100):
 
     wandb.log({
         "avg_generalized_jsd": avg_gen_jsd,
-        # **{f"action_sequence/{agent}": action_logs[agent] for agent in env.agents}
     })
     
     return {
@@ -751,7 +728,7 @@ def main(config):
     trained_params = train_state.params
     compute_trajectory_generalized_jsd(trained_params, config, num_steps=200)
 
-    scenario = map_name_to_scenario("5m_vs_6m")
+    scenario = map_name_to_scenario("2m_vs_2m")
     env = make(
         "HeuristicEnemySMAX",
         scenario=scenario,
