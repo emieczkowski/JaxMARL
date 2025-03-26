@@ -820,8 +820,6 @@ def main(config):
     viz = SMAXVisualizer(env, state_seq)
     gif_filename = "rollout.gif"
     viz.animate(view=False, save_fname=gif_filename)
-
-    # Log the rollout animation to wandb
     wandb.log({"rollout_animation": wandb.Video(gif_filename, format="gif")})
 
     wandb.finish()
