@@ -719,7 +719,7 @@ def main(config):
         tags=["IPPO", "RNN"],
         config=config,
         mode=config["WANDB_MODE"],
-        name=f"{config['MAP_NAME']}_ammo_100",
+        name=f"{config['MAP_NAME']}_ammo_500",
     )
     rng = jax.random.PRNGKey(config["SEED"])
     train_jit = jax.jit(make_train(config), device=jax.devices()[0])
