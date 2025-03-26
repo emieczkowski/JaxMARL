@@ -205,19 +205,16 @@ def compute_trajectory_generalized_jsd(trained_params, config, num_steps=100):
     
     key = jax.random.PRNGKey(0)
     key, key_reset = jax.random.split(key)
-    
-    # Reset environment
     obs, state = env.reset(key_reset)
     init_hstate = ScannedRNN.initialize_carry(1, config["GRU_HIDDEN_DIM"])
     
     generalized_jsd_values = []
     action_entropy_values = {}
+    action_sequences = {agent: [] for agent in env.agents}
     
-    # Initialize action entropy tracking for each agent
     for agent in env.agents[:env.num_allies]:
         action_entropy_values[agent] = []
     
-    # Run trajectory
     for step in range(num_steps):
         key, key_step = jax.random.split(key)
         
@@ -230,13 +227,12 @@ def compute_trajectory_generalized_jsd(trained_params, config, num_steps=100):
         
         # For allied agents, use trained policy
         for i, agent in enumerate(env.agents[:env.num_allies]):
-            # Prepare inputs for the network
-            agent_obs = jnp.expand_dims(obs[agent], axis=0)  # Add batch dimension
+            agent_obs = jnp.expand_dims(obs[agent], axis=0)  
             agent_avail = jnp.expand_dims(avail_actions[agent], axis=0)
             
             ac_in = (
-                jnp.expand_dims(agent_obs, axis=0),  # Add sequence dimension
-                jnp.zeros((1, 1), dtype=bool),  # No dones for evaluation
+                jnp.expand_dims(agent_obs, axis=0),  
+                jnp.zeros((1, 1), dtype=bool),  
                 agent_avail
             )
             
@@ -244,39 +240,32 @@ def compute_trajectory_generalized_jsd(trained_params, config, num_steps=100):
             hstate, pi, _ = ActorCriticRNN(env.action_space(agent).n, config=config).apply(
                 trained_params, init_hstate, ac_in
             )
-            
-            # Get action probabilities
             action_probs[agent] = np.array(pi.probs)
             
-            # Track entropy of each agent's policy
             agent_entropy = entropy(action_probs[agent])
             action_entropy_values[agent].append(agent_entropy)
             
-            # Sample action
             key, key_action = jax.random.split(key)
             action = pi.sample(seed=key_action).squeeze()
             actions[agent] = action
+            action_sequences[agent].append(action)
         
-        # For enemy agents, sample random actions
         for i, agent in enumerate(env.agents[env.num_allies:], start=env.num_allies):
             key, key_enemy = jax.random.split(key)
             actions[agent] = env.action_space(agent).sample(key_enemy)
+            action_sequences[agent].append(int(action))
         
         # Compute generalized JSD between all agents
         distributions = [action_probs[agent] for agent in env.agents[:env.num_allies]]
-        
         if len(distributions) >= 2:
-            # Compute generalized JSD
             gen_jsd = generalized_jsd(distributions)
             generalized_jsd_values.append(gen_jsd)
         
-        # Step environment
         obs, state, rewards, done, info = env.step(key_step, state, actions)
         
         if done["__all__"]:
             break
     
-    # Plot generalized JSD over time
     plt.figure(figsize=(10, 6))
     plt.plot(range(len(generalized_jsd_values)), generalized_jsd_values, label='Generalized JSD')
     
@@ -286,20 +275,24 @@ def compute_trajectory_generalized_jsd(trained_params, config, num_steps=100):
     plt.legend()
     plt.grid(True, alpha=0.3)
     
-    # Log to wandb
     wandb.log({"generalized_jsd_trajectory": wandb.Image(plt)})
     plt.close()
     
     avg_gen_jsd = np.mean(generalized_jsd_values) if generalized_jsd_values else 0
+    action_logs = {
+        agent: wandb.Table(columns=["Step", "Action"], data=[[step, act] for step, act in enumerate(action_sequences[agent])])
+        for agent in env.agents
+    }
     
-    # Log to wandb as metrics
     wandb.log({
-        "avg_generalized_jsd": avg_gen_jsd
+        "avg_generalized_jsd": avg_gen_jsd,
+        **{f"action_sequence/{agent}": action_logs[agent] for agent in env.agents}
     })
     
     return {
         'generalized_jsd': generalized_jsd_values,
-        'entropy': action_entropy_values
+        'entropy': action_entropy_values,
+        'action_sequences': action_sequences
     }
 
 def batchify(x: dict, agent_list, num_actors):
