@@ -729,7 +729,7 @@ def main(config):
     trained_params = train_state.params
     compute_trajectory_generalized_jsd(trained_params, config, num_steps=200)
 
-    scenario = map_name_to_scenario("2m_vs_2m")
+    scenario = map_name_to_scenario("3m_vs_3m")
     env = make(
         "HeuristicEnemySMAX",
         scenario=scenario,
