@@ -284,9 +284,11 @@ def compute_trajectory_generalized_jsd(trained_params, config, num_steps=100):
         for agent in env.agents
     }
     
+    print(action_logs)
+
     wandb.log({
         "avg_generalized_jsd": avg_gen_jsd,
-        **{f"action_sequence/{agent}": action_logs[agent] for agent in env.agents}
+        # **{f"action_sequence/{agent}": action_logs[agent] for agent in env.agents}
     })
     
     return {
@@ -305,59 +307,32 @@ def unbatchify(x: jnp.ndarray, agent_list, num_envs, num_actors):
     return {a: x[i] for i, a in enumerate(agent_list)}
 
 def log_final_visualization(trained_params, config):
-    """
-    Create and log a single visualization of a policy rollout after training
-    
-    Args:
-        trained_params: The trained network parameters
-        config: Configuration dictionary
-    """
-    import jax
-    import numpy as np
-    import wandb
-    from jaxmarl.viz.visualizer import SMAXVisualizer
-    from jaxmarl.environments.smax import map_name_to_scenario
-    from jaxmarl.environments.smax import HeuristicEnemySMAX
-
-    # Create environment for visualization
     scenario = map_name_to_scenario(config["MAP_NAME"])
     env = HeuristicEnemySMAX(scenario=scenario, **config["ENV_KWARGS"])
-    
-    # Create random key
     key = jax.random.PRNGKey(0)
     key, key_reset = jax.random.split(key)
-    
-    # Reset environment
+
     obs, state = env.reset(key_reset)
-    
-    # Initialize RNN hidden state
     init_hstate = ScannedRNN.initialize_carry(1, config["GRU_HIDDEN_DIM"])
     
-    # Initialize episode data storage
     state_seq = []
     done = {"__all__": False}
     max_steps = 200  # Maximum episode length
     step_count = 0
     
-    # Run episode
     while not done["__all__"] and step_count < max_steps:
         key, key_step = jax.random.split(key)
         
-        # Get available actions
         avail_actions = env.get_avail_actions(state)
-        
-        # Prepare actions
         actions = {}
-        
-        # For allied agents, use trained policy
+
         for i, agent in enumerate(env.agents[:env.num_allies]):
-            # Prepare inputs for the network
             agent_obs = jnp.expand_dims(obs[agent], axis=0)  # Add batch dimension
             agent_avail = jnp.expand_dims(avail_actions[agent], axis=0)
             
             ac_in = (
-                jnp.expand_dims(agent_obs, axis=0),  # Add sequence dimension
-                jnp.zeros((1, 1), dtype=bool),  # No dones for evaluation
+                jnp.expand_dims(agent_obs, axis=0), 
+                jnp.zeros((1, 1), dtype=bool), 
                 agent_avail
             )
             
@@ -371,29 +346,20 @@ def log_final_visualization(trained_params, config):
             action = pi.sample(seed=key_action).squeeze()
             actions[agent] = action
         
-        # For enemy agents, sample random actions (or use heuristic if available)
         for i, agent in enumerate(env.agents[env.num_allies:], start=env.num_allies):
             key, key_enemy = jax.random.split(key)
             actions[agent] = env.action_space(agent).sample(key_enemy)
         
-        # Store state and actions for visualization
         state_seq.append((key_step, state, actions))
-        
-        # Step environment
         obs, state, rewards, done, info = env.step(key_step, state, actions)
         step_count += 1
     
-    # Create visualization
     viz = SMAXVisualizer(env, state_seq)
     
-    # Save to a temporary file
     gif_path = "final_episode.gif"
     viz.animate(view=False, save_fname=gif_path)
-    
-    # Log to wandb
     wandb.log({"final_episode": wandb.Video(gif_path, fps=4, format="gif")})
-    
-    # Clean up the file
+
     import os
     if os.path.exists(gif_path):
         os.remove(gif_path)
