@@ -313,8 +313,8 @@ def compute_trajectory_generalized_jsd(trained_params, config, num_steps=100):
         # Compute high-level action distributions
         high_level_counts = {agent: defaultdict(int) for agent in env.agents[:env.num_allies]}
 
-        # Then you can safely increment any new high-level label:
-        high_level_counts[agent][action] += 1
+        high_level_action = categorize_high_level_action(action, 4, 3)
+        high_level_counts[agent][high_level_action] += 1
 
         for agent, actions_list in action_sequences.items():
             if agent in high_level_counts:
