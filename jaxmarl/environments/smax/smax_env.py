@@ -619,12 +619,12 @@ class SMAX(MultiAgentEnv):
                 attack_action,
             )
             attack_action = jnp.where(shootable, attack_action, 0)
-            return attack_action
+            return attack_action, min_dist_idx
 
-        attack_actions = jax.vmap(get_attack_action)(
+        attack_actions, target_enemy_indices = jax.vmap(get_attack_action)(
             jnp.arange(self.num_agents), positions
         )
-        return movement_actions, attack_actions
+        return movement_actions, attack_actions, target_enemy_indices
 
     @partial(jax.jit, static_argnums=(0,))
     def _world_step(
