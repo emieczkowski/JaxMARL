@@ -119,7 +119,7 @@ class LearnedPolicy(nn.Module):
 
         return pi, jnp.squeeze(critic, axis=-1)
     
-def rollout(env, trained_params, max_steps=15, key=jax.random.PRNGKey(2)):
+def rollout(env, trained_params, config, max_steps=15, key=jax.random.PRNGKey(2)):
     """Run a rollout using the trained policy."""
     obs, state = env.reset(key)
     state_seq = []
@@ -158,6 +158,7 @@ def rollout(env, trained_params, max_steps=15, key=jax.random.PRNGKey(2)):
 
     print(f"Returns: {returns}")
     return state_seq
+
 
 
 def compute_jsd_from_counts(action_sequences):
