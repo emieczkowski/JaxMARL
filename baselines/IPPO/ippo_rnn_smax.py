@@ -183,30 +183,29 @@ def compute_jsd_from_counts(action_sequences):
         return generalized_jsd(distributions)  
     return 0.0
 
-def categorize_high_level_action(action, num_movement_actions):
-    if action >= num_movement_actions - 1:  # Attack action
-        return "shoot"
-    elif action == num_movement_actions - 1:  # Wait action
-        return "wait"
-    else:
-        return "move"
+# def categorize_high_level_action(action, num_movement_actions):
+#     if action >= num_movement_actions - 1:  # Attack action
+#         return "shoot"
+#     elif action == num_movement_actions - 1:  # Wait action
+#         return "wait"
+#     else:
+#         return "move"
 
-def compute_high_level_distributions(action_sequences, num_movement_actions):
-    high_level_counts = {agent: {"move": 0, "shoot": 0, "wait": 0} for agent in action_sequences}
+# def compute_high_level_distributions(action_sequences, num_movement_actions):
+#     high_level_counts = {agent: {"move": 0, "shoot": 0, "wait": 0} for agent in action_sequences}
 
-    for agent, actions in action_sequences.items():
-        for action in actions:
-            high_level_action = categorize_high_level_action(action, num_movement_actions)
-            high_level_counts[agent][high_level_action] += 1
+#     for agent, actions in action_sequences.items():
+#         for action in actions:
+#             high_level_action = categorize_high_level_action(action, num_movement_actions)
+#             high_level_counts[agent][high_level_action] += 1
 
-    # Convert counts to probability distributions
-    high_level_distributions = {}
-    for agent, counts in high_level_counts.items():
-        total = sum(counts.values())
-        high_level_distributions[agent] = {k: v / total for k, v in counts.items()} if total > 0 else counts
+#     # Convert counts to probability distributions
+#     high_level_distributions = {}
+#     for agent, counts in high_level_counts.items():
+#         total = sum(counts.values())
+#         high_level_distributions[agent] = {k: v / total for k, v in counts.items()} if total > 0 else counts
 
-    return high_level_distributions
-
+#     return high_level_distributions
 
 def generalized_jsd(distributions, weights=None):
     """
@@ -303,12 +302,12 @@ def compute_trajectory_generalized_jsd(trained_params, config, num_steps=100):
             key, key_action = jax.random.split(key)
             action = pi.sample(seed=key_action).squeeze()
             actions[agent] = action
-            action_sequences[agent].append(categorize_high_level_action(action))  # Store as high-level action
+            action_sequences[agent].append(categorize_high_level_action(action, 4, 3))  
         
         for i, agent in enumerate(env.agents[env.num_allies:], start=env.num_allies):
             key, key_enemy = jax.random.split(key)
             actions[agent] = env.action_space(agent).sample(key_enemy)
-            action_sequences[agent].append(categorize_high_level_action(actions[agent]))  # Store as high-level action
+            action_sequences[agent].append(categorize_high_level_action(actions[agent], 4, 3))  
         
         # Compute high-level action distributions
         high_level_counts = {agent: {"move": 0, "shoot": 0, "wait": 0} for agent in env.agents[:env.num_allies]}
