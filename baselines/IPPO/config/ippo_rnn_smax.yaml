@@ -16,7 +16,7 @@
 "ACTIVATION": "relu"
 "ENV_NAME": "HeuristicEnemySMAX"
 "MAP_NAME": "3m_vs_1m"
-"SEED": 1
+"SEED": 2
 "ENV_KWARGS": 
   "see_enemy_actions": True
   "walls_cause_death": True
