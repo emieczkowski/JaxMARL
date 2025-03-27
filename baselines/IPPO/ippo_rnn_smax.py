@@ -333,7 +333,7 @@ def compute_trajectory_generalized_jsd(trained_params, config, num_steps=100):
         for dist in high_level_distributions.values():
             vec = [dist.get(a, 0.0) for a in all_actions]
             distributions.append(np.array(vec))
-            
+
         if len(distributions) >= 2:
             gen_jsd = generalized_jsd(distributions)
             # gen_jsd = compute_jsd_from_counts(action_sequences)
@@ -923,7 +923,7 @@ def main(config):
         tags=["IPPO", "RNN"],
         config=config,
         mode=config["WANDB_MODE"],
-        name=f"{config['MAP_NAME']}_ammo_200",
+        name=f"{config['MAP_NAME']}",
     )
     rng = jax.random.PRNGKey(config["SEED"])
     train_jit = jax.jit(make_train(config), device=jax.devices()[0])
