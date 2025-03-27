@@ -16,6 +16,7 @@ from omegaconf import DictConfig, OmegaConf
 from scipy.spatial.distance import jensenshannon
 from scipy.stats import entropy
 from jaxmarl import make
+from collections import defaultdict
 
 from jaxmarl.wrappers.baselines import SMAXLogWrapper
 from jaxmarl.environments.smax import map_name_to_scenario, HeuristicEnemySMAX
@@ -310,7 +311,10 @@ def compute_trajectory_generalized_jsd(trained_params, config, num_steps=100):
             action_sequences[agent].append(categorize_high_level_action(actions[agent], 4, 3))  
         
         # Compute high-level action distributions
-        high_level_counts = {agent: {"move": 0, "shoot": 0, "wait": 0} for agent in env.agents[:env.num_allies]}
+        high_level_counts = {agent: defaultdict(int) for agent in env.agents[:env.num_allies]}
+
+        # Then you can safely increment any new high-level label:
+        high_level_counts[agent][action] += 1
 
         for agent, actions_list in action_sequences.items():
             if agent in high_level_counts:
