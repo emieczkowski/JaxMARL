@@ -157,27 +157,64 @@ class UniformUnitTypeDistribution(Distribution):
         super().__init__(n_allies, n_enemies, map_width, map_height)
         self.n_unit_types = n_unit_types
 
+    # def generate(self, key):
+    #     enemy_key, ally_key = jax.random.split(key)
+    #     ally_unit_types = jax.random.categorical(
+    #         ally_key,
+    #         jnp.log(jnp.ones((self.n_unit_types,)) / self.n_unit_types),
+    #         shape=(self.n_allies,),
+    #     ).astype(jnp.uint8)
+    #     enemy_unit_types = jnp.zeros((self.n_enemies,), dtype=jnp.uint8)
+    #     min_size = min(self.n_allies, self.n_enemies)
+    #     # enemy_unit_types = enemy_unit_types.at[:min_size].set(ally_unit_types)
+    #     enemy_unit_types = enemy_unit_types.at[:min_size].set(ally_unit_types[:min_size])
+
+    #     enemy_unit_types = jax.lax.select(
+    #         min_size == self.n_enemies,
+    #         enemy_unit_types,
+    #         enemy_unit_types.at[min_size:].set(
+    #             jax.random.categorical(
+    #                 enemy_key,
+    #                 jnp.log(jnp.ones((self.n_unit_types)) / self.n_unit_types),
+    #                 shape=(self.n_enemies - self.n_allies,),
+    #             ).astype(jnp.uint8)
+    #         ),
+    #     )
+    #     return jnp.concatenate([ally_unit_types, enemy_unit_types], dtype=jnp.uint8)
     def generate(self, key):
         enemy_key, ally_key = jax.random.split(key)
+
+        # Sample ally unit types
         ally_unit_types = jax.random.categorical(
             ally_key,
             jnp.log(jnp.ones((self.n_unit_types,)) / self.n_unit_types),
             shape=(self.n_allies,),
         ).astype(jnp.uint8)
-        enemy_unit_types = jnp.zeros((self.n_enemies,), dtype=jnp.uint8)
-        min_size = min(self.n_allies, self.n_enemies)
-        # enemy_unit_types = enemy_unit_types.at[:min_size].set(ally_unit_types)
-        enemy_unit_types = enemy_unit_types.at[:min_size].set(ally_unit_types[:min_size])
 
-        enemy_unit_types = jax.lax.select(
-            min_size == self.n_enemies,
-            enemy_unit_types,
-            enemy_unit_types.at[min_size:].set(
+        # Initialize enemy unit types
+        enemy_unit_types = jnp.zeros((self.n_enemies,), dtype=jnp.uint8)
+
+        # Reflect as many ally unit types as we can
+        num_reflected = min(self.n_allies, self.n_enemies)
+        enemy_unit_types = enemy_unit_types.at[:num_reflected].set(ally_unit_types[:num_reflected])
+
+        # Compute how many remaining need to be sampled
+        num_random = self.n_enemies - num_reflected
+
+        def sample_extra():
+            return enemy_unit_types.at[num_reflected:].set(
                 jax.random.categorical(
                     enemy_key,
-                    jnp.log(jnp.ones((self.n_unit_types)) / self.n_unit_types),
-                    shape=(self.n_enemies - self.n_allies,),
+                    jnp.log(jnp.ones((self.n_unit_types,)) / self.n_unit_types),
+                    shape=(num_random,),
                 ).astype(jnp.uint8)
-            ),
+            )
+
+        enemy_unit_types = jax.lax.cond(
+            num_random > 0,
+            sample_extra,
+            lambda: enemy_unit_types
         )
+
         return jnp.concatenate([ally_unit_types, enemy_unit_types], dtype=jnp.uint8)
+
