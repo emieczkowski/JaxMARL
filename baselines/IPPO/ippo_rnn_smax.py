@@ -162,27 +162,27 @@ def rollout(env, trained_params, config, max_steps=15, key=jax.random.PRNGKey(2)
 
 
 
-def compute_jsd_from_counts(action_sequences):
-    """ Compute JSD using normalized high-level action distributions. """
+# def compute_jsd_from_counts(action_sequences):
+#     """ Compute JSD using normalized high-level action distributions. """
     
-    categories = ["move", "shoot", "wait"]
-    action_counts = {agent: {cat: 0 for cat in categories} for agent in action_sequences}
+#     categories = ["move", "shoot", "wait"]
+#     action_counts = {agent: {cat: 0 for cat in categories} for agent in action_sequences}
 
-    for agent, actions in action_sequences.items():
-        for action in actions:
-            action_counts[agent][action] += 1
+#     for agent, actions in action_sequences.items():
+#         for action in actions:
+#             action_counts[agent][action] += 1
 
-    distributions = []
-    for agent, counts in action_counts.items():
-        total = sum(counts.values())
-        if total > 0:
-            distributions.append([counts[cat] / total for cat in categories])
-        else:
-            distributions.append([0.0, 0.0, 0.0])  
+#     distributions = []
+#     for agent, counts in action_counts.items():
+#         total = sum(counts.values())
+#         if total > 0:
+#             distributions.append([counts[cat] / total for cat in categories])
+#         else:
+#             distributions.append([0.0, 0.0, 0.0])  
     
-    if len(distributions) >= 2:
-        return generalized_jsd(distributions)  
-    return 0.0
+#     if len(distributions) >= 2:
+#         return generalized_jsd(distributions)  
+#     return 0.0
 
 # def categorize_high_level_action(action, num_movement_actions):
 #     if action >= num_movement_actions - 1:  # Attack action
@@ -329,8 +329,8 @@ def compute_trajectory_generalized_jsd(trained_params, config, num_steps=100):
         # Compute JSD over high-level distributions
         distributions = [list(dist.values()) for dist in high_level_distributions.values()]
         if len(distributions) >= 2:
-            # gen_jsd = generalized_jsd(distributions)
-            gen_jsd = compute_jsd_from_counts(action_sequences)
+            gen_jsd = generalized_jsd(distributions)
+            # gen_jsd = compute_jsd_from_counts(action_sequences)
             generalized_jsd_values.append(gen_jsd)
 
         obs, state, rewards, done, info = env.step(key_step, state, actions)
