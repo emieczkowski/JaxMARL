@@ -386,13 +386,16 @@ def compute_trajectory_generalized_jsd(trained_params, config, num_steps=100):
 
         # Decode actions and extract target enemy indices (requires modification to env method)
         if hasattr(env, "_decode_continuous_actions"):
+            # Convert list of 1D action vectors into a 2D array
+            action_array = jnp.stack([actions[a] for a in env.agents], axis=0)  # shape: (num_agents, action_dim)
+
             _, attack_actions, target_indices = env._decode_continuous_actions(
-                key_step, state, jnp.array([actions[a] for a in env.agents])
+                key_step, state, action_array
             )
+
         else:
             attack_actions = jnp.array([actions[a] for a in env.agents])
             target_indices = jnp.full_
-
 
 # def compute_trajectory_generalized_jsd(trained_params, config, num_steps=100):
 #     """
