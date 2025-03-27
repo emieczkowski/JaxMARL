@@ -117,8 +117,8 @@ class SMAX(MultiAgentEnv):
         num_allies=5,
         num_enemies=5,
         initial_ammo=200, # NEW
-        map_width=32,
-        map_height=32,
+        map_width=8,
+        map_height=8,
         world_steps_per_env_step=8,
         time_per_step=1.0 / 16,
         scenario=None,
