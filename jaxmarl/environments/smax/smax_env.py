@@ -540,10 +540,10 @@ class SMAX(MultiAgentEnv):
             return vec
 
         movement_actions = jax.vmap(_decode_movement_action)(actions)
-        attack_actions, target_enemy_indices = jnp.where(
+        attack_actions = jnp.where(
             actions > self.num_movement_actions - 1, actions, jnp.zeros_like(actions)
         )
-        return movement_actions, attack_actions, target_enemy_indices
+        return movement_actions, attack_actions
 
     @partial(jax.jit, static_argnums=(0,))
     def _decode_continuous_actions(
@@ -621,10 +621,10 @@ class SMAX(MultiAgentEnv):
             attack_action = jnp.where(shootable, attack_action, 0)
             return attack_action, min_dist_idx
 
-        attack_actions, target_enemy_indices = jax.vmap(get_attack_action)(
+        attack_actions = jax.vmap(get_attack_action)(
             jnp.arange(self.num_agents), positions
         )
-        return movement_actions, attack_actions, target_enemy_indices
+        return movement_actions, attack_actions
 
     @partial(jax.jit, static_argnums=(0,))
     def _world_step(
