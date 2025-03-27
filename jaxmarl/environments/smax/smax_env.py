@@ -77,6 +77,7 @@ MAP_NAME_TO_SCENARIO = {
     "3m_vs_3m": Scenario(jnp.zeros((6,), dtype=jnp.uint8), 3, 3, False, False),
     "3m_vs_4m": Scenario(jnp.zeros((7,), dtype=jnp.uint8), 3, 4, False, False),
     "4m_vs_1m": Scenario(jnp.zeros((5,), dtype=jnp.uint8), 4, 1, False, False),
+    "4m_vs_2m": Scenario(jnp.zeros((6,), dtype=jnp.uint8), 4, 2, False, False),
     "5m_vs_6m": Scenario(jnp.zeros((11,), dtype=jnp.uint8), 5, 6, False, False),
     "10m_vs_11m": Scenario(jnp.zeros((21,), dtype=jnp.uint8), 10, 11, False, False),
     "27m_vs_30m": Scenario(jnp.zeros((57,), dtype=jnp.uint8), 27, 30, False, False),
