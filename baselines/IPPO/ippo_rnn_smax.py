@@ -327,7 +327,13 @@ def compute_trajectory_generalized_jsd(trained_params, config, num_steps=100):
             high_level_distributions[agent] = {k: v / total for k, v in counts.items()} if total > 0 else counts
 
         # Compute JSD over high-level distributions
-        distributions = [list(dist.values()) for dist in high_level_distributions.values()]
+        # distributions = [list(dist.values()) for dist in high_level_distributions.values()]
+        all_actions = sorted({a for dist in high_level_distributions.values() for a in dist.keys()})
+        distributions = []
+        for dist in high_level_distributions.values():
+            vec = [dist.get(a, 0.0) for a in all_actions]
+            distributions.append(np.array(vec))
+            
         if len(distributions) >= 2:
             gen_jsd = generalized_jsd(distributions)
             # gen_jsd = compute_jsd_from_counts(action_sequences)
