@@ -125,23 +125,40 @@ def rollout(env, trained_params, max_steps=15, key=jax.random.PRNGKey(2)):
     state_seq = []
     returns = {a: 0 for a in env.agents}
 
-    key_a = jax.random.split(key, env.num_agents)
-    actions = {agent: env.action_space(agent).sample(key_a[i]) for i, agent in enumerate(env.agents)}
+    # Initialize hidden states for RNN
+    hidden_states = {
+        agent: ScannedRNN.initialize_carry(1, config["GRU_HIDDEN_DIM"])
+        for agent in env.agents
+    }
 
     for _ in range(max_steps):
         key, key_s, key_seq = jax.random.split(key, 3)
-        key_a = jax.random.split(key_seq, env.num_agents)
-        
-        actions = {agent: env.action_space(agent).sample(key_a[i]) for i, agent in enumerate(env.agents)}
-        state_seq.append((key_s, state, actions))
+        actions = {}
 
+        for agent in env.agents[:env.num_allies]:  # Use policy for allied agents
+            agent_obs = jnp.expand_dims(obs[agent], axis=0)  
+            agent_avail = jnp.expand_dims(env.get_avail_actions(state)[agent], axis=0)
+
+            ac_in = (jnp.expand_dims(agent_obs, axis=0), jnp.zeros((1, 1), dtype=bool), agent_avail)
+            hidden_states[agent], pi, _ = ActorCriticRNN(env.action_space(agent).n, config=config).apply(
+                trained_params, hidden_states[agent], ac_in
+            )
+
+            actions[agent] = pi.sample(seed=key_seq).squeeze()
+
+        for agent in env.agents[env.num_allies:]:  # Random actions for enemies
+            actions[agent] = env.action_space(agent).sample(key_seq)
+
+        state_seq.append((key_s, state, actions))
         obs, state, rewards, dones, infos = env.step(key_s, state, actions)
         returns = {a: returns[a] + rewards[a] for a in env.agents}
+        
         if dones["__all__"]:
             break
 
     print(f"Returns: {returns}")
     return state_seq
+
 
 def compute_jsd_from_counts(action_sequences):
     """ Compute JSD using normalized high-level action distributions. """
