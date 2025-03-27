@@ -932,7 +932,7 @@ def main(config):
         observation_type="conic"
     )
 
-    state_seq = rollout(env, trained_param, config)
+    state_seq = rollout(env, trained_params, config)
 
     viz = SMAXVisualizer(env, state_seq)
     gif_filename = "rollout.gif"
