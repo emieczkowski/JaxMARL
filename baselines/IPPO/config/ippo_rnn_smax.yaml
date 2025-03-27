@@ -25,5 +25,5 @@
 
 # WandB Params
 "ENTITY": "ruaridhmw"
-"PROJECT": "jaxmarl-smac-2"
+"PROJECT": "jaxmarl-smac-3"
 "WANDB_MODE" : "offline"
