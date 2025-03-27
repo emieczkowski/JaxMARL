@@ -921,16 +921,8 @@ def main(config):
     trained_params = train_state.params
     compute_trajectory_generalized_jsd(trained_params, config, num_steps=200)
 
-    scenario = map_name_to_scenario("3m_vs_3m")
-    env = make(
-        "HeuristicEnemySMAX",
-        scenario=scenario,
-        use_self_play_reward=False,
-        walls_cause_death=True,
-        see_enemy_actions=True,
-        action_type="discrete",
-        observation_type="conic"
-    )
+    scenario = map_name_to_scenario(config["MAP_NAME"])
+    env = HeuristicEnemySMAX(scenario=scenario, **config["ENV_KWARGS"])
 
     state_seq = rollout(env, trained_params, config)
 
