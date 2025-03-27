@@ -166,7 +166,8 @@ class UniformUnitTypeDistribution(Distribution):
         ).astype(jnp.uint8)
         enemy_unit_types = jnp.zeros((self.n_enemies,), dtype=jnp.uint8)
         min_size = min(self.n_allies, self.n_enemies)
-        enemy_unit_types = enemy_unit_types.at[:min_size].set(ally_unit_types)
+        # enemy_unit_types = enemy_unit_types.at[:min_size].set(ally_unit_types)
+        enemy_unit_types = enemy_unit_types.at[:min_size].set(ally_unit_types[:min_size])
 
         enemy_unit_types = jax.lax.select(
             min_size == self.n_enemies,
