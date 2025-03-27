@@ -29,22 +29,46 @@ class ReflectPositionDistribution(Distribution):
             maxval=jnp.array([self.map_width / 2, self.map_height]),
         )
         enemy_pos = jnp.zeros((self.n_enemies, 2))
-        min_size = min(self.n_enemies, self.n_allies)
-        enemy_pos = enemy_pos.at[:min_size, 0].set(self.map_width - ally_pos[:, 0])
-        enemy_pos = enemy_pos.at[:min_size, 1].set(ally_pos[:, 1])
-        enemy_pos = jax.lax.select(
-            min_size == self.n_enemies,
-            enemy_pos,
-            enemy_pos.at[self.n_allies :, :].set(
+        # min_size = min(self.n_enemies, self.n_allies)
+        # enemy_pos = enemy_pos.at[:min_size, 0].set(self.map_width - ally_pos[:, 0])
+        # enemy_pos = enemy_pos.at[:min_size, 1].set(ally_pos[:, 1])
+        # enemy_pos = jax.lax.select(
+        #     min_size == self.n_enemies,
+        #     enemy_pos,
+        #     enemy_pos.at[self.n_allies :, :].set(
+        #         jax.random.uniform(
+        #             key,
+        #             shape=(self.n_enemies - self.n_allies, 2),
+        #             minval=jnp.array([self.map_width / 2, 0.0]),
+        #             maxval=jnp.array([self.map_width, self.map_height]),
+        #         )
+        #     ),
+        # )
+        # return jnp.concatenate([ally_pos, enemy_pos])
+        enemy_pos = jnp.zeros((self.n_enemies, 2))
+        num_reflected = min(self.n_allies, self.n_enemies)
+
+        # Reflect the first num_reflected ally positions
+        enemy_pos = enemy_pos.at[:num_reflected, 0].set(self.map_width - ally_pos[:num_reflected, 0])
+        enemy_pos = enemy_pos.at[:num_reflected, 1].set(ally_pos[:num_reflected, 1])
+
+        # If there are more enemies than allies, randomly generate the remaining positions
+        num_random = self.n_enemies - num_reflected
+        enemy_pos = jax.lax.cond(
+            num_random > 0,
+            lambda: enemy_pos.at[num_reflected:].set(
                 jax.random.uniform(
                     key,
-                    shape=(self.n_enemies - self.n_allies, 2),
+                    shape=(num_random, 2),
                     minval=jnp.array([self.map_width / 2, 0.0]),
                     maxval=jnp.array([self.map_width, self.map_height]),
                 )
             ),
+            lambda: enemy_pos
         )
-        return jnp.concatenate([ally_pos, enemy_pos])
+
+        # Combine allies and enemies
+        return jnp.concatenate([ally_pos, enemy_pos], axis=0)
 
 
 class SurroundPositionDistribution(Distribution):
