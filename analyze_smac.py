@@ -24,6 +24,7 @@ grouped = df.groupby("trial").agg({
     "S": "first"
 }).reset_index()
 
+grouped = grouped[grouped["num_enemies"] == 2]
 print(grouped)
 
 pearson_corr, _ = pearsonr(grouped["S"], grouped["jsd"])
@@ -36,31 +37,15 @@ plt.ylabel("Average JSD")
 plt.title("JSD vs. Parallelizability")
 plt.grid(True)
 plt.tight_layout()
-# plt.show()
+plt.show()
 
-# grouped_by_agents = grouped.groupby("num_agents")["jsd"].mean().reset_index()
+grouped_by_agents = grouped.groupby("num_agents")["jsd"].mean().reset_index()
 
-# plt.figure(figsize=(8, 5))
-# plt.bar(grouped_by_agents["num_agents"], grouped_by_agents["jsd"], color='skyblue')
-# plt.xlabel("Number of Agents")
-# plt.ylabel("Average JSD")
-# plt.title("Average JSD vs. Number of Agents")
-# plt.grid(axis='y', alpha=0.3)
-# plt.tight_layout()
-# plt.show()
-
-# Prepare data for grouped bar chart
-grouped_bar = grouped.groupby(["num_agents", "num_enemies"])["jsd"].mean().reset_index()
-
-# Pivot to have enemy counts as separate columns
-pivoted = grouped_bar.pivot(index="num_agents", columns="num_enemies", values="jsd")
-
-# Plot
-pivoted.plot(kind="bar", figsize=(10, 6))
+plt.figure(figsize=(8, 5))
+plt.bar(grouped_by_agents["num_agents"], grouped_by_agents["jsd"], color='skyblue')
 plt.xlabel("Number of Agents")
 plt.ylabel("Average JSD")
-plt.title("Average JSD by Number of Agents and Enemies")
-plt.legend(title="Number of Enemies")
+plt.title("Average JSD vs. Number of Agents")
 plt.grid(axis='y', alpha=0.3)
 plt.tight_layout()
 plt.show()
