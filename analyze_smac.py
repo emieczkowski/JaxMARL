@@ -2,19 +2,18 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from scipy.stats import pearsonr
 import numpy as np
+from scipy.stats import f_oneway
 
 df = pd.read_csv("smac_expt1/wandb_runs_chunk1.csv")
+# df2 = pd.read_csv("smac_expt1/wandb_runs_chunk2.csv")
+# df = pd.concat([df1, df2], ignore_index=True)
+
+df = df[df["jsd"].notna()]
 
 # Group by trial and compute average JSD
 df["trial"] = df["name"].apply(lambda x: "_".join(x.split("_")[:3]))
-avg_jsd_per_trial = df.groupby("trial")["jsd"].mean().reset_index()
+# avg_jsd_per_trial = df.groupby("trial")["jsd"].mean().reset_index()
 df[["num_agents", "num_enemies"]] = df["trial"].str.extract(r"(\d+)m_vs_(\d+)m").astype(int)
-
-# print(avg_jsd_per_trial)
-
-# df["S"] = np.minimum(df["num_agents"], df["num_enemies"]) # treating enemies as bottlenecks
-# df["S"] = df["num_agents"] / df["num_enemies"]  # treating enemies as workload
-# df["S"] = df["num_agents"] / np.minimum(df["num_agents"]-1, df["num_enemies"]) 
 df["S"] = df["num_agents"]
 
 grouped = df.groupby("trial").agg({
@@ -24,8 +23,11 @@ grouped = df.groupby("trial").agg({
     "S": "first"
 }).reset_index()
 
-grouped = grouped[grouped["num_enemies"] == 2]
-print(grouped)
+# Extract agent/enemy counts and parallelizability
+grouped[["num_agents", "num_enemies"]] = grouped["trial"].str.extract(r"(\d+)m_vs_(\d+)m").astype(int)
+grouped["S"] = grouped["num_agents"]
+
+grouped = grouped[grouped["num_enemies"] == 3]
 
 pearson_corr, _ = pearsonr(grouped["S"], grouped["jsd"])
 print(f"Pearson correlation (S vs. JSD): {pearson_corr:.4f}")
@@ -49,3 +51,14 @@ plt.title("Average JSD vs. Number of Agents")
 plt.grid(axis='y', alpha=0.3)
 plt.tight_layout()
 plt.show()
+
+filtered_df = df[df["num_enemies"] == 3]
+
+grouped_jsds = [
+    group["jsd"].values
+    for _, group in filtered_df.groupby("num_agents")
+    if len(group) > 1 
+]
+
+f_stat, p_value = f_oneway(*grouped_jsds)
+print(f"ANOVA F-statistic: {f_stat:.4f}, p-value: {p_value:.4e}")

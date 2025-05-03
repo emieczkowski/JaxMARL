@@ -47,4 +47,16 @@ plt.ylabel("Average JSD")
 plt.title("JSD vs. Parallelizability")
 plt.grid(True)
 plt.tight_layout()
+# plt.show()
+
+grouped = grouped[grouped["num_landmarks"] == 3]
+grouped_by_agents = grouped.groupby("num_agents")["reward"].mean().reset_index()
+
+plt.figure(figsize=(8, 5))
+plt.bar(grouped_by_agents["num_agents"], grouped_by_agents["reward"], color='green')
+plt.xlabel("Number of Agents")
+plt.ylabel("Average Reward")
+plt.title("Average Reward vs. Number of Agents")
+plt.grid(axis='y', alpha=0.3)
+plt.tight_layout()
 plt.show()
