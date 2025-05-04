@@ -20,10 +20,15 @@ if [ -z "$PYTHON_SCRIPT_PATH" ]; then
 fi
 
 # Step 4: Execute the Python script using Apptainer, pointing to the snapshot directory
+# apptainer exec --nv --bind "$SNAPSHOT_DIR:/home/workdir/JaxMARL" \
+#   --bind "$SNAPSHOT_DIR:/home/local_workdir/JaxMARL" \
+#   --env PYTHONPATH=/home/local_workdir/JaxMARL:/home/workdir/JaxMARL \
+#   /scratch/gpfs/em4240/jaxmarl_latest.sif /usr/bin/python3 "/home/workdir/JaxMARL/$PYTHON_SCRIPT_PATH"
+# Append --config.SEED=$SEED to override seed dynamically
 apptainer exec --nv --bind "$SNAPSHOT_DIR:/home/workdir/JaxMARL" \
   --bind "$SNAPSHOT_DIR:/home/local_workdir/JaxMARL" \
   --env PYTHONPATH=/home/local_workdir/JaxMARL:/home/workdir/JaxMARL \
-  /scratch/gpfs/em4240/jaxmarl_latest.sif /usr/bin/python3 "/home/workdir/JaxMARL/$PYTHON_SCRIPT_PATH"
+  /scratch/gpfs/em4240/jaxmarl_latest.sif /usr/bin/python3 "/home/workdir/JaxMARL/$PYTHON_SCRIPT_PATH" --config.SEED=$SEED
 
 # Ensure cleanup runs on script exit
 trap 'rm -rf "$SNAPSHOT_DIR"' EXIT
