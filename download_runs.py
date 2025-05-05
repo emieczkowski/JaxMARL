@@ -4,13 +4,13 @@ import pandas as pd
 def main():
     wandb.init(
         entity="ruaridhmw",
-        project="jaxmarl-smac-expt-7",
+        project="jaxmarl-smac-expt-9",
         mode="online",
     )
 
     api = wandb.Api(timeout=1000)
     entity = "ruaridhmw"
-    project = "jaxmarl-smac-expt-7"
+    project = "jaxmarl-smac-expt-9"
     runs = api.runs(f"{entity}/{project}")
     
     chunk_size = 1000  # Number of runs per CSV chunk
@@ -27,7 +27,7 @@ def main():
     
     if rows:
         df = pd.DataFrame(rows)
-        file_name = f"smac_expt2/wandb_runs_chunk3.csv"
+        file_name = f"smac_expt2/3enemies.csv"
         df.to_csv(file_name, index=False)
         print(f"Saved final chunk with {len(df)} runs to {file_name}")
 

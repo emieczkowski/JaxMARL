@@ -4,7 +4,7 @@ from scipy.stats import pearsonr
 import numpy as np
 from scipy.stats import f_oneway
 
-df = pd.read_csv("smac_expt2/wandb_runs_chunk3.csv")
+df = pd.read_csv("smac_expt2/combined.csv")
 # df2 = pd.read_csv("smac_expt1/wandb_runs_chunk2.csv")
 # df = pd.concat([df1, df2], ignore_index=True)
 
@@ -24,7 +24,7 @@ grouped = df.groupby("trial").agg({
 }).reset_index()
 
 # Extract agent/enemy counts and parallelizability
-grouped[["num_agents", "num_enemies"]] = grouped["trial"].str.extract(r"(\d+)m_vs_(\d+)m").astype(int)
+# grouped[["num_agents", "num_enemies"]] = grouped["trial"].str.extract(r"(\d+)m_vs_(\d+)m").astype(int)
 grouped["S"] = grouped["num_agents"]
 
 # grouped = grouped[grouped["num_enemies"] == 2]
@@ -42,7 +42,7 @@ plt.tight_layout()
 plt.show()
 
 grouped_by_agents = (
-    df[df["num_enemies"] == 2]
+    df
     .groupby("num_agents")["jsd"]
     .agg(['mean', 'sem'])  
     .reset_index()
