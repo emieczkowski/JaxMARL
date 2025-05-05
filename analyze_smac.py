@@ -4,7 +4,7 @@ from scipy.stats import pearsonr
 import numpy as np
 from scipy.stats import f_oneway
 
-df = pd.read_csv("smac_expt1/wandb_runs_chunk1.csv")
+df = pd.read_csv("smac_expt2/wandb_runs_chunk1.csv")
 # df2 = pd.read_csv("smac_expt1/wandb_runs_chunk2.csv")
 # df = pd.concat([df1, df2], ignore_index=True)
 
@@ -15,6 +15,8 @@ df["trial"] = df["name"].apply(lambda x: "_".join(x.split("_")[:3]))
 # avg_jsd_per_trial = df.groupby("trial")["jsd"].mean().reset_index()
 df[["num_agents", "num_enemies"]] = df["trial"].str.extract(r"(\d+)m_vs_(\d+)m").astype(int)
 df["S"] = df["num_agents"]
+
+print(df)
 
 grouped = df.groupby("trial").agg({
     "jsd": "mean",
@@ -27,7 +29,7 @@ grouped = df.groupby("trial").agg({
 grouped[["num_agents", "num_enemies"]] = grouped["trial"].str.extract(r"(\d+)m_vs_(\d+)m").astype(int)
 grouped["S"] = grouped["num_agents"]
 
-grouped = grouped[grouped["num_enemies"] == 3]
+grouped = grouped[grouped["num_enemies"] == 2]
 
 pearson_corr, _ = pearsonr(grouped["S"], grouped["jsd"])
 print(f"Pearson correlation (S vs. JSD): {pearson_corr:.4f}")
