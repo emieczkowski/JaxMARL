@@ -275,7 +275,7 @@ def compute_trajectory_generalized_jsd(trained_params, config, num_steps=100):
     #         return "move"
     
     def categorize_high_level_action(action, num_movement_actions, num_enemies):
-        if action >= num_movement_actions and action < num_movement_actions + num_enemies:
+        if (not action is None) and (action >= num_movement_actions and action < num_movement_actions + num_enemies):
             target_enemy = action - num_movement_actions
             return f"shoot_enemy_{target_enemy}"
 
