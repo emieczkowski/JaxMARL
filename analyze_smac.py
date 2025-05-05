@@ -4,7 +4,7 @@ from scipy.stats import pearsonr
 import numpy as np
 from scipy.stats import f_oneway
 
-df = pd.read_csv("smac_expt2/wandb_runs_chunk1.csv")
+df = pd.read_csv("smac_expt2/wandb_runs_chunk3.csv")
 # df2 = pd.read_csv("smac_expt1/wandb_runs_chunk2.csv")
 # df = pd.concat([df1, df2], ignore_index=True)
 

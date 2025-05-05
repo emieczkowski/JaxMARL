@@ -15,8 +15,8 @@
 "MAX_GRAD_NORM": 0.25
 "ACTIVATION": "relu"
 "ENV_NAME": "HeuristicEnemySMAX"
-"MAP_NAME": "3m_vs_2m"
-"SEED": 5
+"MAP_NAME": "2m_vs_2m"
+"SEED": 0
 "ENV_KWARGS": 
   "see_enemy_actions": True
   "walls_cause_death": True
@@ -25,5 +25,5 @@
 
 # WandB Params
 "ENTITY": "ruaridhmw"
-"PROJECT": "jaxmarl-smac-expt-fixed3m_correct"
+"PROJECT": "jaxmarl-smac-expt-onlyshootactionsinjsd"
 "WANDB_MODE" : "offline"
