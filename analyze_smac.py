@@ -16,8 +16,6 @@ df["trial"] = df["name"].apply(lambda x: "_".join(x.split("_")[:3]))
 df[["num_agents", "num_enemies"]] = df["trial"].str.extract(r"(\d+)m_vs_(\d+)m").astype(int)
 df["S"] = df["num_agents"]
 
-print(df)
-
 grouped = df.groupby("trial").agg({
     "jsd": "mean",
     "num_agents": "first",
@@ -29,7 +27,7 @@ grouped = df.groupby("trial").agg({
 grouped[["num_agents", "num_enemies"]] = grouped["trial"].str.extract(r"(\d+)m_vs_(\d+)m").astype(int)
 grouped["S"] = grouped["num_agents"]
 
-grouped = grouped[grouped["num_enemies"] == 2]
+# grouped = grouped[grouped["num_enemies"] == 2]
 
 pearson_corr, _ = pearsonr(grouped["S"], grouped["jsd"])
 print(f"Pearson correlation (S vs. JSD): {pearson_corr:.4f}")
@@ -43,18 +41,30 @@ plt.grid(True)
 plt.tight_layout()
 plt.show()
 
-grouped_by_agents = grouped.groupby("num_agents")["jsd"].mean().reset_index()
+grouped_by_agents = (
+    df[df["num_enemies"] == 2]
+    .groupby("num_agents")["jsd"]
+    .agg(['mean', 'sem'])  
+    .reset_index()
+)
 
 plt.figure(figsize=(8, 5))
-plt.bar(grouped_by_agents["num_agents"], grouped_by_agents["jsd"], color='skyblue')
+plt.bar(
+    grouped_by_agents["num_agents"],
+    grouped_by_agents["mean"],
+    yerr=grouped_by_agents["sem"],
+    capsize=5,
+    color='skyblue',
+    alpha=0.9
+)
 plt.xlabel("Number of Agents")
 plt.ylabel("Average JSD")
-plt.title("Average JSD vs. Number of Agents")
+plt.title("Average JSD vs. Number of Agents (with Error Bars)")
 plt.grid(axis='y', alpha=0.3)
 plt.tight_layout()
 plt.show()
 
-filtered_df = df[df["num_enemies"] == 3]
+filtered_df = df[df["num_enemies"] == 2]
 
 grouped_jsds = [
     group["jsd"].values
