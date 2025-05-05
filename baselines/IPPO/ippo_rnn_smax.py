@@ -263,21 +263,21 @@ def compute_trajectory_generalized_jsd(trained_params, config, num_steps=100):
         action_entropy_values[agent] = []
 
     # Define high-level action mapping
-    # def categorize_high_level_action(action, num_movement_actions, num_enemies):
-    #     if action == num_movement_actions - 1:
-    #         return "wait"
-    #     elif action >= num_movement_actions and action < num_movement_actions + num_enemies:
-    #         target_enemy = action - num_movement_actions
-    #         return f"shoot_enemy_{target_enemy}"
-    #     elif action >= num_movement_actions + num_enemies:
-    #         return "invalid_shoot"  # just in case
-    #     else:
-    #         return "move"
-    
     def categorize_high_level_action(action, num_movement_actions, num_enemies):
-        if action >= num_movement_actions and action < num_movement_actions + num_enemies:
+        if action == num_movement_actions - 1:
+            return "wait"
+        elif action >= num_movement_actions and action < num_movement_actions + num_enemies:
             target_enemy = action - num_movement_actions
             return f"shoot_enemy_{target_enemy}"
+        elif action >= num_movement_actions + num_enemies:
+            return "invalid_shoot"  # just in case
+        else:
+            return "move"
+    
+    # def categorize_high_level_action(action, num_movement_actions, num_enemies):
+    #     if action >= num_movement_actions and action < num_movement_actions + num_enemies:
+    #         target_enemy = action - num_movement_actions
+    #         return f"shoot_enemy_{target_enemy}"
 
     for step in range(num_steps):
         key, key_step = jax.random.split(key)
