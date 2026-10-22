@@ -37,7 +37,7 @@
 "SEED": 0
 "NUM_SEEDS": 5  # vmapped in one job, logged as seed_<i>/... in a single W&B run
 
-"ENTITY": "emiecz-princeton-org"
+"ENTITY": "emiecz-princeton"
 "PROJECT": "jaxmarl-overcooked-v2-scaling"
 "GROUP": null  # set to the sweep's run directory name by run.slurm
 "GIT_HASH": null  # set by run.slurm
