@@ -99,6 +99,10 @@ class OvercookedV2(MultiAgentEnv):
         op_ingredient_permutations: Optional[List[int]] = None,
         initial_state_buffer: Optional[State] = None,
         force_path_planning: bool = False,
+        no_collision: bool = False,
+        pot_cook_time: int = POT_COOK_TIME,
+        num_agents: Optional[int] = None,
+        num_pots: Optional[int] = None,
     ):
         """
         Initializes the OvercookedV2 environment.
@@ -117,6 +121,10 @@ class OvercookedV2(MultiAgentEnv):
             op_ingredient_permutations (list): List of ingredient indices to permute in the observation (Fixed per agent in one episode).
             initial_state_buffer (State): Initial state buffer to be used to reset the environment. On each reset, a state from this buffer will be used.
             force_path_planning (bool): Whether to force path planning in the environment. Used to access featurized obs manually.
+            no_collision (bool): If true, agents do not collide with each other: multiple agents may occupy the same cell and agents may pass through each other. Static objects still block movement, and interactions (e.g. pots) are unchanged.
+            pot_cook_time (int): Number of steps a pot takes to cook a soup.
+            num_agents (Optional[int]): Number of agents. None uses the agents of the layout, otherwise agents are added to / removed from the layout (see Layout.with_num_agents).
+            num_pots (Optional[int]): Number of pots. None uses the pots of the layout, otherwise pots are added to / removed from the layout (see Layout.with_num_pots).
         """
 
         if isinstance(layout, str):
@@ -127,6 +135,15 @@ class OvercookedV2(MultiAgentEnv):
             layout = overcooked_v2_layouts[layout]
         elif not isinstance(layout, Layout):
             raise ValueError("Invalid layout, must be a Layout object or a string key")
+
+        if num_agents is not None:
+            layout = layout.with_num_agents(num_agents)
+        if num_pots is not None:
+            layout = layout.with_num_pots(num_pots)
+
+        if pot_cook_time < 1:
+            raise ValueError("pot_cook_time must be at least 1")
+        self.pot_cook_time = pot_cook_time
 
         num_agents = len(layout.agent_positions)
 
@@ -168,6 +185,8 @@ class OvercookedV2(MultiAgentEnv):
         self.sample_recipe_on_delivery = jnp.array(
             sample_recipe_on_delivery, dtype=jnp.bool_
         )
+
+        self.no_collision = no_collision
 
         self.enclosed_spaces = compute_enclosed_spaces(
             layout.static_objects == StaticObject.EMPTY,
@@ -439,7 +458,7 @@ class OvercookedV2(MultiAgentEnv):
                     # without an interaction the pot is always full when cooking
                     pot_ingridients_full = jnp.sum(raw_ingridients)
 
-                pot_timer = jax.random.randint(key_timer, (), 0, POT_COOK_TIME) + 1
+                pot_timer = jax.random.randint(key_timer, (), 0, self.pot_cook_time) + 1
 
                 possible_states = jnp.array(
                     [
@@ -1020,8 +1039,8 @@ class OvercookedV2(MultiAgentEnv):
 
         # Move action:
         # 1. move agent to new position (if possible on the grid)
-        # 2. resolve collisions
-        # 3. prevent swapping
+        # 2. resolve collisions (skipped if no_collision)
+        # 3. prevent swapping (skipped if no_collision)
         def _move_wrapper(agent, action):
             direction = ACTION_TO_DIRECTION[action]
 
@@ -1064,13 +1083,14 @@ class OvercookedV2(MultiAgentEnv):
             collisions = jax.vmap(lambda p: collision_mask[p.y, p.x])(positions)
             return collisions
 
-        initial_mask = jnp.zeros((self.num_agents,), dtype=bool)
-        mask = jax.lax.while_loop(
-            lambda mask: jnp.any(_get_collisions(mask)),
-            lambda mask: mask | _get_collisions(mask),
-            initial_mask,
-        )
-        new_agents = new_agents.replace(pos=_masked_positions(mask))
+        if not self.no_collision:
+            initial_mask = jnp.zeros((self.num_agents,), dtype=bool)
+            mask = jax.lax.while_loop(
+                lambda mask: jnp.any(_get_collisions(mask)),
+                lambda mask: mask | _get_collisions(mask),
+                initial_mask,
+            )
+            new_agents = new_agents.replace(pos=_masked_positions(mask))
 
         # Prevent swapping:
         def _compute_swapped_agents(original_positions, new_positions):
@@ -1088,8 +1108,9 @@ class OvercookedV2(MultiAgentEnv):
             swapped_agents = jnp.any(swap_pairs, axis=0)
             return swapped_agents
 
-        swap_mask = _compute_swapped_agents(state.agents.pos, new_agents.pos)
-        new_agents = new_agents.replace(pos=_masked_positions(swap_mask))
+        if not self.no_collision:
+            swap_mask = _compute_swapped_agents(state.agents.pos, new_agents.pos)
+            new_agents = new_agents.replace(pos=_masked_positions(swap_mask))
 
         # Interact action:
         def _interact_wrapper(carry, x):
@@ -1321,7 +1342,7 @@ class OvercookedV2(MultiAgentEnv):
 
         use_pot_extra = successful_pot_start_cooking | auto_cook
         new_extra = (
-            use_pot_extra * POT_COOK_TIME
+            use_pot_extra * self.pot_cook_time
             + successful_indicator_activation * INDICATOR_ACTIVATION_TIME
             + ~use_pot_extra * ~successful_indicator_activation * interact_extra
         )

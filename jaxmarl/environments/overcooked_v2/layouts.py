@@ -1,3 +1,4 @@
+import dataclasses
 import itertools
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
@@ -5,6 +6,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 
 from jaxmarl.environments.overcooked_v2.common import StaticObject
+from jaxmarl.environments.overcooked_v2.utils import compute_enclosed_spaces
 
 # Layouts from Overcooked-AI
 cramped_room = """
@@ -196,6 +198,19 @@ W1WWWWWWW1W
 """
 
 
+# Scaling Layouts
+# Single open room meant to be used with num_agents / num_pots (up to 10 each)
+scaling_kitchen = """
+WWWWWPWWWWWW
+W          W
+0          0
+X    A     X
+B          B
+W          W
+WWWWWWWWWWWW
+"""
+
+
 @dataclass
 class Layout:
     # agent positions list of positions, tuples (x, y)
@@ -238,6 +253,119 @@ class Layout:
         )
 
         return [list(recipe) for recipe in unique_recipes]
+
+    def _rooms(self) -> np.ndarray:
+        """Id of the enclosed walkable space of each cell (-1 for non-walkable cells)."""
+        return np.asarray(
+            compute_enclosed_spaces(self.static_objects == StaticObject.EMPTY)
+        )
+
+    def _adjacent_rooms(self, rooms: np.ndarray, y: int, x: int) -> set:
+        adjacent = set()
+        for dy, dx in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+            ny, nx = y + dy, x + dx
+            if 0 <= ny < self.height and 0 <= nx < self.width and rooms[ny, nx] != -1:
+                adjacent.add(int(rooms[ny, nx]))
+        return adjacent
+
+    def with_num_agents(self, num_agents: int) -> "Layout":
+        """Return a copy of this layout with `num_agents` agents.
+
+        Removing agents keeps the first `num_agents` agents of the layout.
+        Extra agents are assigned round-robin to the rooms of the original agents
+        (so layouts with separated rooms keep the same split), each placed on the
+        free cell of its room farthest (Manhattan) from all already placed agents.
+        """
+        if num_agents < 1:
+            raise ValueError("num_agents must be at least 1")
+
+        positions = list(self.agent_positions[:num_agents])
+        rooms = self._rooms()
+        num_original = len(self.agent_positions)
+
+        for i in range(num_original, num_agents):
+            src_x, src_y = self.agent_positions[i % num_original]
+            room = rooms[src_y, src_x]
+            free = [
+                (int(x), int(y))
+                for y, x in zip(*np.nonzero(rooms == room))
+                if (x, y) not in positions
+            ]
+            if not free:
+                raise ValueError(
+                    f"Not enough free cells to place {num_agents} agents in this layout"
+                )
+            positions.append(
+                max(
+                    free,
+                    key=lambda p: min(
+                        abs(p[0] - q[0]) + abs(p[1] - q[1]) for q in positions
+                    ),
+                )
+            )
+
+        return dataclasses.replace(self, agent_positions=positions)
+
+    def with_num_pots(self, num_pots: int) -> "Layout":
+        """Return a copy of this layout with `num_pots` pots.
+
+        Only rooms that contain an agent and can already reach a pot are used
+        (all agent rooms if the layout has no pots), so the division of labour
+        between rooms is preserved.
+        Removing: pots are turned into counters, starting from the last pot
+        (row-major) whose rooms can still reach another pot.
+        Adding: counters bordering exactly one of those rooms (never hand-over
+        counters between rooms) are turned into pots, each time choosing the
+        counter farthest (Manhattan) from the existing pots.
+        """
+        if num_pots < 0:
+            raise ValueError("num_pots must be non-negative")
+
+        static_objects = self.static_objects.copy()
+        rooms = self._rooms()
+        agent_rooms = {int(rooms[y, x]) for x, y in self.agent_positions}
+
+        def _pots():
+            return list(zip(*np.nonzero(static_objects == StaticObject.POT)))
+
+        def _pot_rooms(pot):
+            return self._adjacent_rooms(rooms, *pot) & agent_rooms
+
+        target_rooms = set().union(*map(_pot_rooms, _pots())) or agent_rooms
+
+        while len(_pots()) > num_pots:
+            pots = _pots()
+
+            def _is_redundant(pot):
+                others = [q for q in pots if q != pot]
+                return all(
+                    any(room in _pot_rooms(q) for q in others)
+                    for room in _pot_rooms(pot)
+                )
+
+            y, x = ([p for p in pots if _is_redundant(p)] or pots)[-1]
+            static_objects[y, x] = StaticObject.WALL
+
+        while len(_pots()) < num_pots:
+            pots = _pots()
+            candidates = []
+            for y, x in zip(*np.nonzero(static_objects == StaticObject.WALL)):
+                adjacent = self._adjacent_rooms(rooms, y, x)
+                if len(adjacent) == 1 and adjacent <= target_rooms:
+                    candidates.append((y, x))
+            if not candidates:
+                raise ValueError(
+                    f"Not enough free counters to place {num_pots} pots in this layout"
+                )
+            y, x = max(
+                candidates,
+                key=lambda c: min(
+                    (abs(c[0] - p[0]) + abs(c[1] - p[1]) for p in pots), default=0
+                ),
+            )
+            static_objects[y, x] = StaticObject.POT
+
+        return dataclasses.replace(self, static_objects=static_objects)
 
     @staticmethod
     def from_string(grid, possible_recipes=None, swap_agents=False):
@@ -405,4 +533,6 @@ overcooked_v2_layouts = {
     "demo_cook_wide": Layout.from_string(
         demo_cook_wide, possible_recipes=[[0, 0, 0], [1, 1, 1]]
     ),
+    # Scaling Layouts
+    "scaling_kitchen": Layout.from_string(scaling_kitchen, possible_recipes=[[0, 0, 0]]),
 }

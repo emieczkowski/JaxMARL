@@ -5,6 +5,10 @@
   "negative_rewards": True
   "sample_recipe_on_delivery": True
   "random_agent_positions": True
+  "no_collision": False  # if True, agents can occupy the same cell / pass through each other
+  "pot_cook_time": 20  # steps for a pot to cook a soup
+  "num_agents": null  # null = use the layout's agents
+  "num_pots": null  # null = use the layout's pots
 
 "LR": 0.00025
 "ANNEAL_LR": True

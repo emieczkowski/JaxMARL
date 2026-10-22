@@ -263,7 +263,7 @@ def make_train(config):
         init_value=1.0, end_value=0.0, transition_steps=config["REW_SHAPING_HORIZON"]
     )
 
-    def train(rng):
+    def train(rng, seed_idx):
         # INIT NETWORK
         network = ActorCriticRNN(env.action_space(env.agents[0]).n, config=config)
 
@@ -546,12 +546,22 @@ def make_train(config):
             rng = update_state[-1]
 
             def callback(metric):
-                wandb.log(metric)
+                # Seeds are vmapped, so this is called once per seed: prefix by seed.
+                metric = dict(metric)
+                seed = int(metric.pop("seed"))
+                log = {
+                    "update_step": int(metric.pop("update_step")),
+                    "env_step": int(metric.pop("env_step")),
+                }
+                for k, v in flatten_metrics(metric).items():
+                    log[f"seed_{seed}/{k}"] = float(v)
+                wandb.log(log)
 
             update_step = update_step + 1
             metric = jax.tree.map(lambda x: x.mean(), metric)
             metric["update_step"] = update_step
             metric["env_step"] = update_step * config["NUM_STEPS"] * config["NUM_ENVS"]
+            metric["seed"] = seed_idx
             jax.debug.callback(callback, metric)
 
             runner_state = (
@@ -583,29 +593,67 @@ def make_train(config):
     return train
 
 
+def flatten_metrics(metric, prefix=""):
+    flat = {}
+    for k, v in metric.items():
+        if isinstance(v, dict):
+            flat.update(flatten_metrics(v, prefix=f"{prefix}{k}/"))
+        else:
+            flat[f"{prefix}{k}"] = v
+    return flat
+
+
+def make_run_name(config):
+    env_kwargs = config["ENV_KWARGS"]
+    parts = [f"ippo_rnn_overcooked_v2_{env_kwargs['layout']}"]
+    for key, short in (("num_agents", "a"), ("num_pots", "p"), ("pot_cook_time", "c")):
+        if env_kwargs.get(key) is not None:
+            parts.append(f"{short}{env_kwargs[key]}")
+    if env_kwargs.get("no_collision"):
+        parts.append("nocoll")
+    return "_".join(parts)
+
+
 @hydra.main(
     version_base=None, config_path="config", config_name="ippo_rnn_overcooked_v2"
 )
 def main(config):
     config = OmegaConf.to_container(config)
 
-    layout_name = config["ENV_KWARGS"]["layout"]
     num_seeds = config["NUM_SEEDS"]
 
     wandb.init(
         entity=config["ENTITY"],
         project=config["PROJECT"],
-        tags=["IPPO", "RNN", "OvercookedV2"],
+        tags=["IPPO", "RNN", "OvercookedV2"] + config.get("TAGS", []),
+        group=None if config.get("GROUP") is None else str(config["GROUP"]),
         config=config,
         mode=config["WANDB_MODE"],
-        name=f"ippo_rnn_overcooked_v2_{layout_name}",
+        name=make_run_name(config),
     )
+    wandb.define_metric("env_step")
+    wandb.define_metric("*", step_metric="env_step")
 
     with jax.disable_jit(False):
         rng = jax.random.PRNGKey(config["SEED"])
         rngs = jax.random.split(rng, num_seeds)
         train_jit = jax.jit(make_train(config))
-        jax.vmap(train_jit)(rngs)
+        out = jax.vmap(train_jit)(rngs, jnp.arange(num_seeds))
+
+    # Final performance: mean return over the last 10% of updates, per seed
+    returns = np.asarray(out["metrics"]["returned_episode_returns"])
+    final_returns = returns[:, -max(1, returns.shape[1] // 10) :].mean(axis=1)
+    for seed, final_return in enumerate(final_returns):
+        wandb.run.summary[f"seed_{seed}/final_returned_episode_returns"] = float(
+            final_return
+        )
+    wandb.run.summary["final_returned_episode_returns_mean"] = float(
+        final_returns.mean()
+    )
+    wandb.run.summary["final_returned_episode_returns_std"] = float(
+        final_returns.std()
+    )
+    wandb.finish()
 
 
 if __name__ == "__main__":
