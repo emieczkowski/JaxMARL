@@ -37,8 +37,9 @@
 "SEED": 0
 "NUM_SEEDS": 5  # vmapped in one job, logged as seed_<i>/... in a single W&B run
 
-"ENTITY": "ruaridhmw"
+"ENTITY": "emiecz-princeton-org"
 "PROJECT": "jaxmarl-overcooked-v2-scaling"
-"GROUP": null
+"GROUP": null  # set to the sweep's run directory name by run.slurm
+"GIT_HASH": null  # set by run.slurm
 "TAGS": ["scaling"]
 "WANDB_MODE" : "offline"  # compute nodes have no internet: sync afterwards with `wandb sync`
