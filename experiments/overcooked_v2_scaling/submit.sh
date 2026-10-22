@@ -8,7 +8,7 @@
 set -euo pipefail
 
 REPO_DIR="/scratch/gpfs/GRIFFITHS/em4240/JaxMARL"
-SIF="${SIF:-/scratch/gpfs/GRIFFITHS/em4240/jaxmarl_latest.sif}"
+CONDA_ENV="${CONDA_ENV:-/scratch/gpfs/GRIFFITHS/em4240/envs/jaxmarl}"
 MAX_CONCURRENT="${MAX_CONCURRENT:-50}"
 EXP_DIR="$REPO_DIR/experiments/overcooked_v2_scaling"
 
@@ -41,7 +41,7 @@ echo "Git commit: $GIT_HASH"
 JOB_ID=$(sbatch \
   --parsable \
   --array="${ARRAY_SPEC}%${MAX_CONCURRENT}" \
-  --export=ALL,RUN_DIR="$RUN_DIR",GIT_HASH="$GIT_HASH",SIF="$SIF" \
+  --export=ALL,RUN_DIR="$RUN_DIR",GIT_HASH="$GIT_HASH",CONDA_ENV="$CONDA_ENV" \
   --output="$RUN_DIR/logs/ov2_%A_%a.out" \
   "$RUN_DIR/code/experiments/overcooked_v2_scaling/run.slurm")
 
