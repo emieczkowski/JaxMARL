@@ -1,6 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=ov2_scaling
 #SBATCH --gres=gpu:1
+#SBATCH --constraint=gpu80            # 10 agents x 5 vmapped seeds needs ~28 GiB of GPU memory
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
 #SBATCH --time=6:00:00

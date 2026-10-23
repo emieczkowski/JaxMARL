@@ -120,7 +120,7 @@ class ActorCriticRNN(nn.Module):
     def __call__(self, hidden, x):
         obs, dones = x
 
-        embedding = obs
+        embedding = obs.astype(jnp.float32)
 
         if self.config["ACTIVATION"] == "relu":
             activation = nn.relu
@@ -219,6 +219,12 @@ def unbatchify(x: jnp.ndarray, agent_list, num_envs, num_actors):
 
 def make_train(config):
     env = jaxmarl.make(config["ENV_NAME"], **config["ENV_KWARGS"])
+
+    # Observations are stored as uint8 in the trajectory buffer (4x less memory than
+    # int32), so every observation value must fit in [0, 255]. The pot timer is the
+    # only value that can exceed it.
+    if env.pot_cook_time > 255:
+        raise ValueError("pot_cook_time must be <= 255 (observations are stored as uint8)")
 
     config["NUM_ACTORS"] = env.num_agents * config["NUM_ENVS"]
     config["NUM_UPDATES"] = (
@@ -319,8 +325,10 @@ def make_train(config):
                 rng, _rng = jax.random.split(rng)
 
                 # obs_batch = batchify(last_obs, env.agents, config["NUM_ACTORS"])
-                obs_batch = jnp.stack([last_obs[a] for a in env.agents]).reshape(
-                    -1, *env.observation_space().shape
+                obs_batch = (
+                    jnp.stack([last_obs[a] for a in env.agents])
+                    .reshape(-1, *env.observation_space().shape)
+                    .astype(jnp.uint8)
                 )
                 ac_in = (
                     obs_batch[np.newaxis, :],
