@@ -118,6 +118,8 @@ class LogWrapper(JaxMARLWrapper):
 @struct.dataclass
 class OvercookedV2LogEnvState(LogEnvState):
     returned_episode_recipe_returns: Dict[str, Float[Array, "..."]]
+    # whether the episode ended by completing the order (env.order_size), not by timeout
+    returned_episode_order_completed: Array
 
 
 class OvercookedV2LogWrapper(JaxMARLWrapper):
@@ -126,9 +128,7 @@ class OvercookedV2LogWrapper(JaxMARLWrapper):
         self.replace_info = replace_info
 
         self.recipe_dict = {
-            f"{recipe[0]}_{recipe[1]}_{recipe[2]}": DynamicObject.get_recipe_encoding(
-                recipe
-            )
+            "_".join(map(str, recipe)): DynamicObject.get_recipe_encoding(recipe)
             for recipe in env.possible_recipes
         }
 
@@ -147,6 +147,7 @@ class OvercookedV2LogWrapper(JaxMARLWrapper):
             jnp.zeros((self._env.num_agents,)),
             jnp.zeros((self._env.num_agents,)),
             recipe_returns,
+            jnp.zeros((self._env.num_agents,), dtype=bool),
         )
         return obs, state
 
@@ -163,6 +164,9 @@ class OvercookedV2LogWrapper(JaxMARLWrapper):
         ep_done = done["__all__"]
         new_episode_return = state.episode_returns + self.stack_agent_values(reward)
         new_episode_length = state.episode_lengths + 1
+        order_completed = info.pop(
+            "order_completed", jnp.zeros((self._env.num_agents,), dtype=bool)
+        )
 
         updated_recipe_returns = {
             id: jax.lax.select(
@@ -184,9 +188,16 @@ class OvercookedV2LogWrapper(JaxMARLWrapper):
                 ep_done, new_episode_length, state.returned_episode_lengths
             ),
             returned_episode_recipe_returns=updated_recipe_returns,
+            returned_episode_order_completed=jax.lax.select(
+                ep_done, order_completed, state.returned_episode_order_completed
+            ),
         )
         if self.replace_info:
             info = {}
+        if self._env.order_size is not None:
+            info["returned_episode_order_completed"] = (
+                state.returned_episode_order_completed
+            )
         info["returned_episode_returns"] = state.returned_episode_returns
         info["returned_episode_lengths"] = state.returned_episode_lengths
         info["returned_episode"] = jnp.full((self._env.num_agents,), ep_done)

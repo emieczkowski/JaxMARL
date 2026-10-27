@@ -76,6 +76,9 @@ class State(BaseState):
         default_factory=lambda: jnp.array(False)
     )
 
+    # number of correct deliveries in this episode
+    num_delivered: jax.Array = struct.field(default_factory=lambda: jnp.array(0))
+
     ingredient_permutations: Optional[jax.Array] = None
 
 
@@ -103,6 +106,8 @@ class OvercookedV2(MultiAgentEnv):
         pot_cook_time: int = POT_COOK_TIME,
         num_agents: Optional[int] = None,
         num_pots: Optional[int] = None,
+        recipe_size: int = 3,
+        order_size: Optional[int] = None,
     ):
         """
         Initializes the OvercookedV2 environment.
@@ -114,7 +119,7 @@ class OvercookedV2(MultiAgentEnv):
             agent_view_size (Optional[int]): The number of blocks the agent can view in each direction, None for full grid.
             random_reset (bool): Whether to reset the environment with random agent positions, inventories and pot states.
             random_agent_positions (bool): Whether to randomize agent positions. Agents will not be moved outside of their room if they are placed in an enclosed space.
-            start_cooking_interaction (bool): If false the pot starts cooking automatically once three ingredients are added, if true the pot starts cooking only after the agent interacts with it.
+            start_cooking_interaction (bool): If false the pot starts cooking automatically once it is full (recipe_size ingredients), if true the pot starts cooking only after the agent interacts with it.
             negative_rewards (bool): Whether to use negative rewards.
             sample_recipe_on_delivery (bool): Whether to sample a new recipe when a delivery is made. Default is on reset only.
             indicate_successful_delivery (bool): Whether to indicate a delivery was successful in the observation.
@@ -125,6 +130,8 @@ class OvercookedV2(MultiAgentEnv):
             pot_cook_time (int): Number of steps a pot takes to cook a soup.
             num_agents (Optional[int]): Number of agents. None uses the agents of the layout, otherwise agents are added to / removed from the layout (see Layout.with_num_agents).
             num_pots (Optional[int]): Number of pots. None uses the pots of the layout, otherwise pots are added to / removed from the layout (see Layout.with_num_pots).
+            recipe_size (int): Number of ingredients in a soup (1-3). Pots hold at most this many ingredients and cook once full. If not 3, the layout's recipes are replaced by all recipes of this size (see Layout.with_recipe_size).
+            order_size (Optional[int]): If set, the episode ends once this many correct soups have been delivered (or at max_steps, whichever comes first).
         """
 
         if isinstance(layout, str):
@@ -140,10 +147,17 @@ class OvercookedV2(MultiAgentEnv):
             layout = layout.with_num_agents(num_agents)
         if num_pots is not None:
             layout = layout.with_num_pots(num_pots)
+        if recipe_size != 3:
+            layout = layout.with_recipe_size(recipe_size)
+        self.recipe_size = recipe_size
 
         if pot_cook_time < 1:
             raise ValueError("pot_cook_time must be at least 1")
         self.pot_cook_time = pot_cook_time
+
+        if order_size is not None and order_size < 1:
+            raise ValueError("order_size must be at least 1")
+        self.order_size = order_size
 
         num_agents = len(layout.agent_positions)
 
@@ -235,12 +249,18 @@ class OvercookedV2(MultiAgentEnv):
         dones = {f"agent_{i}": done for i in range(self.num_agents)}
         dones["__all__"] = done
 
+        infos = {"shaped_reward": shaped_rewards}
+        if self.order_size is not None:
+            infos["order_completed"] = jnp.full(
+                (self.num_agents,), self._order_completed(state)
+            )
+
         return (
             lax.stop_gradient(obs),
             lax.stop_gradient(state),
             rewards,
             dones,
-            {"shaped_reward": shaped_rewards},
+            infos,
         )
 
     @partial(jax.jit, static_argnums=(0,))
@@ -308,6 +328,7 @@ class OvercookedV2(MultiAgentEnv):
             done=jnp.array(False),
             recipe=recipe,
             new_correct_delivery=jnp.array(False),
+            num_delivered=jnp.array(0),
             ingredient_permutations=ingredient_permutations,
         )
 
@@ -341,6 +362,7 @@ class OvercookedV2(MultiAgentEnv):
             step=0,
             done=False,
             new_correct_delivery=False,
+            num_delivered=0,
             ingredient_permutations=ingredient_permutations,
         )
 
@@ -444,12 +466,12 @@ class OvercookedV2(MultiAgentEnv):
             def _sample_pot_states(key):
                 key, key_ing, key_num, key_timer = jax.random.split(key, 4)
                 raw_ingridients = jax.random.randint(
-                    key_ing, (3,), 0, self.layout.num_ingredients
+                    key_ing, (self.recipe_size,), 0, self.layout.num_ingredients
                 )
                 raw_ingridients = jax.vmap(DynamicObject.ingredient)(raw_ingridients)
 
-                partial_recipe = jax.random.randint(key_num, (), 1, 4)
-                mask = jnp.arange(3) < partial_recipe
+                partial_recipe = jax.random.randint(key_num, (), 1, self.recipe_size + 1)
+                mask = jnp.arange(self.recipe_size) < partial_recipe
 
                 pot_ingridients_masked = jnp.sum(raw_ingridients * mask)
                 if self.start_cooking_interaction:
@@ -903,7 +925,7 @@ class OvercookedV2(MultiAgentEnv):
 
                 # pi_closest_pot_{j}_{is_empty|is_full|is_cooking|is_ready}
                 pot_empty = pot_ing == DynamicObject.EMPTY
-                pot_full = DynamicObject.ingredient_count(pot_ing) == 3
+                pot_full = DynamicObject.ingredient_count(pot_ing) == self.recipe_size
                 pot_cooking = pot_timer > 0
                 pot_ready = (pot_ing & DynamicObject.COOKED) == DynamicObject.COOKED
 
@@ -1118,7 +1140,7 @@ class OvercookedV2(MultiAgentEnv):
             is_interact = action == OvercookedActionsEnum.interact
 
             def _interact(carry, agent):
-                grid, correct_delivery, reward = carry
+                grid, num_correct_deliveries, reward = carry
 
                 (
                     new_grid,
@@ -1132,7 +1154,7 @@ class OvercookedV2(MultiAgentEnv):
 
                 carry = (
                     new_grid,
-                    correct_delivery | new_correct_delivery,
+                    num_correct_deliveries + new_correct_delivery,
                     reward + interact_reward,
                 )
                 return carry, (new_agent, shaped_reward)
@@ -1141,11 +1163,12 @@ class OvercookedV2(MultiAgentEnv):
                 is_interact, _interact, lambda c, a: (c, (a, 0.0)), carry, agent
             )
 
-        carry = (grid, jnp.array(False), jnp.array(0.0))
+        carry = (grid, jnp.array(0), jnp.array(0.0))
         xs = (new_agents, actions)
-        (new_grid, new_correct_delivery, reward), (new_agents, shaped_rewards) = (
+        (new_grid, num_correct_deliveries, reward), (new_agents, shaped_rewards) = (
             jax.lax.scan(_interact_wrapper, carry, xs)
         )
+        new_correct_delivery = num_correct_deliveries > 0
 
         # Update extra info:
         def _timestep_wrapper(cell):
@@ -1208,6 +1231,7 @@ class OvercookedV2(MultiAgentEnv):
                 grid=new_grid,
                 recipe=new_recipe,
                 new_correct_delivery=new_correct_delivery,
+                num_delivered=state.num_delivered + num_correct_deliveries,
             ),
             reward,
             shaped_rewards,
@@ -1289,7 +1313,7 @@ class OvercookedV2(MultiAgentEnv):
         # print("object_is_pile: ", object_is_pile)
         # print("inventory_is_empty: ", inventory_is_empty)
 
-        pot_full = DynamicObject.ingredient_count(interact_ingredients) == 3
+        pot_full = DynamicObject.ingredient_count(interact_ingredients) == self.recipe_size
         # print("pot_full: ", pot_full)
 
         successful_pot_placement = pot_is_idle * inventory_is_ingredient * ~pot_full
@@ -1324,7 +1348,9 @@ class OvercookedV2(MultiAgentEnv):
         new_ingredients = (
             successful_drop * merged_ingredients + no_effect * interact_ingredients
         )
-        pot_full_after_drop = DynamicObject.ingredient_count(new_ingredients) == 3
+        pot_full_after_drop = (
+            DynamicObject.ingredient_count(new_ingredients) == self.recipe_size
+        )
 
         successful_pot_start_cooking = (
             pot_is_idle
@@ -1400,7 +1426,12 @@ class OvercookedV2(MultiAgentEnv):
     def is_terminal(self, state: State) -> jax.Array:
         """Check whether state is terminal."""
         done_steps = state.step >= self.max_steps
-        return done_steps | state.done
+        return done_steps | state.done | self._order_completed(state)
+
+    def _order_completed(self, state: State) -> jax.Array:
+        if self.order_size is None:
+            return jnp.array(False)
+        return state.num_delivered >= self.order_size
 
     def get_eval_solved_rate_fn(self):
         def _fn(ep_stats):

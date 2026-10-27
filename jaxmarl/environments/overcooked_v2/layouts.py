@@ -242,12 +242,14 @@ class Layout:
         return self.static_objects.shape[1]
 
     @staticmethod
-    def _get_all_possible_recipes(num_ingredients: int) -> List[List[int]]:
+    def _get_all_possible_recipes(
+        num_ingredients: int, recipe_size: int = 3
+    ) -> List[List[int]]:
         """
         Get all possible recipes given the number of ingredients.
         """
-        available_ingredients = list(range(num_ingredients)) * 3
-        raw_combinations = itertools.combinations(available_ingredients, 3)
+        available_ingredients = list(range(num_ingredients)) * recipe_size
+        raw_combinations = itertools.combinations(available_ingredients, recipe_size)
         unique_recipes = set(
             tuple(sorted(combination)) for combination in raw_combinations
         )
@@ -305,6 +307,22 @@ class Layout:
             )
 
         return dataclasses.replace(self, agent_positions=positions)
+
+    def with_recipe_size(self, recipe_size: int) -> "Layout":
+        """Return a copy of this layout whose recipes have `recipe_size` ingredients.
+
+        The possible recipes become all recipes of that size from the layout's
+        ingredients (e.g. [[0]] for a single-ingredient layout with recipe_size=1).
+        """
+        if not 1 <= recipe_size <= 3:
+            raise ValueError("recipe_size must be between 1 and 3")
+
+        return dataclasses.replace(
+            self,
+            possible_recipes=self._get_all_possible_recipes(
+                self.num_ingredients, recipe_size
+            ),
+        )
 
     def with_num_pots(self, num_pots: int) -> "Layout":
         """Return a copy of this layout with `num_pots` pots.

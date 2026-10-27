@@ -113,3 +113,50 @@ for run in runs:
 - **Returns are team totals**, not per agent. Divide by the number of agents for per-capita productivity.
 - **Shared-cell observations:** with collisions off, the "other agents" observation channels count how many agents share a cell, so values can be above 1.
 - **Incomplete runs:** check `run.state` and the presence of the summary keys. A run that hit the 10-hour SLURM limit has history but no `final_*` summary.
+
+# Order sweep (fixed-work variant)
+
+A second sweep in the same layout, designed to match Amdahl's Law: instead of counting soups delivered in a fixed time, each episode is one fixed job (an order of K soups), and the outcome is how long the team takes to complete it. Not launched yet.
+
+## Design
+
+Full factorial, 10 × 3 × 3 × 2 × 2 = **360 configurations × 5 seeds**. Config `ippo_rnn_overcooked_v2_order.yaml`, sweep file `sweep_order.sh`, W&B project `emiecz-princeton/jaxmarl-overcooked-v2-order`, W&B group `OV2_order_<git hash>_<timestamp>`.
+
+| Factor | Values | W&B config key |
+|---|---|---|
+| Agents | 1–10 | `ENV_KWARGS.num_agents` |
+| Order size K (soups per episode), also the number of pots | 1, 3, 6 | `ENV_KWARGS.order_size`, `ENV_KWARGS.num_pots` |
+| Pot cooking time (env steps) | 5, 20, 60 | `ENV_KWARGS.pot_cook_time` |
+| Recipe size (onions per soup) | 1, 3 | `ENV_KWARGS.recipe_size` |
+| Collisions | off (`True`) / on (`False`) | `ENV_KWARGS.no_collision` |
+
+Run names add `_r{recipe size}_o{order size}`, e.g. `ippo_rnn_overcooked_v2_scaling_kitchen_a3_p6_c20_r1_o6_nocoll`.
+
+## Differences from the scaling sweep
+
+- **The episode ends when the order is complete**, i.e. after K correct deliveries, or at the time limit of 1000 steps. Reward is unchanged (20 per soup, plus shaped rewards for the first half of training); the discount (γ = 0.99) is what rewards finishing sooner.
+- **Recipe size:** a pot holds at most `recipe_size` onions and starts cooking once it holds that many. With `recipe_size: 1`, a soup is one onion trip plus one plate–pot–delivery trip.
+- **Fixed start positions** (`random_agent_positions: False`): agents start where `Layout.with_num_agents` places them, so every episode of a configuration is the same job.
+- **Pots** are added in the same order as in the scaling sweep, so they are not equidistant from the piles: the work per soup differs between pots.
+
+## Logged data
+
+As in the scaling sweep, plus:
+
+| Metric | Meaning |
+|---|---|
+| `returned_episode_lengths` | **Completion time** of the most recent finished episode (env steps), or 1000 if the order was not completed. |
+| `returned_episode_order_completed` | 1 if the most recent finished episode completed the order, 0 if it hit the time limit. Averaged over envs, this is the completion rate. |
+
+Summary keys `final_returned_episode_lengths_{mean,std}` and `final_returned_episode_order_completed_{mean,std}` (and per seed) are computed like `final_returned_episode_returns`. **Main outcome measure: `final_returned_episode_lengths_mean`**, interpreted together with the completion rate (lengths of incomplete episodes are censored at 1000).
+
+## Running
+
+```bash
+SWEEP=sweep_order.sh ./submit.sh --list      # job index -> configuration
+SWEEP=sweep_order.sh ./submit.sh 348,359     # pilot: two of the largest configurations (10 agents, K=6)
+SWEEP=sweep_order.sh ./submit.sh             # full sweep
+./sync.sh <RUN_DIR>                          # upload to W&B, as for the scaling sweep
+```
+
+Without `SWEEP`, `submit.sh` runs the scaling sweep (`sweep.sh`) as before.

@@ -1,0 +1,48 @@
+"ENV_NAME": "overcooked_v2"
+"ENV_KWARGS":
+  "layout" : "scaling_kitchen"
+  "agent_view_size": null  # full observability
+  "negative_rewards": True
+  "sample_recipe_on_delivery": True
+  "random_agent_positions": False  # fixed start positions (see Layout.with_num_agents)
+  "max_steps": 1000  # time limit; episodes normally end earlier, when the order is complete
+  # Swept by experiments/overcooked_v2_scaling/sweep_order.sh
+  "no_collision": False  # if True, agents can occupy the same cell / pass through each other
+  "pot_cook_time": 20  # steps for a pot to cook a soup
+  "num_agents": 2  # agents are added to / removed from the layout
+  "num_pots": 3  # pots are added to / removed from the layout
+  "recipe_size": 1  # onions per soup; pots cook once they hold this many
+  "order_size": 3  # the episode ends once this many soups have been delivered
+
+"LR": 0.00025
+"ANNEAL_LR": True
+"LR_WARMUP": 0.05
+
+"NUM_ENVS": 256
+"NUM_STEPS": 256
+"UPDATE_EPOCHS": 4
+"NUM_MINIBATCHES": 64
+
+"TOTAL_TIMESTEPS": 3e7
+"REW_SHAPING_HORIZON": 1.5e7
+
+"FC_DIM_SIZE": 128
+"GRU_HIDDEN_DIM": 128
+
+"CLIP_EPS": 0.2
+"ENT_COEF": 0.01
+"GAMMA": 0.99
+"GAE_LAMBDA": 0.95
+"SCALE_CLIP_EPS": False
+"VF_COEF": 0.5
+"MAX_GRAD_NORM": 0.25
+"ACTIVATION": "relu"
+"SEED": 0
+"NUM_SEEDS": 5  # vmapped in one job, logged as seed_<i>/... in a single W&B run
+
+"ENTITY": "emiecz-princeton"
+"PROJECT": "jaxmarl-overcooked-v2-order"
+"GROUP": null  # set to the sweep's run directory name by run.slurm
+"GIT_HASH": null  # set by run.slurm
+"TAGS": ["order"]
+"WANDB_MODE" : "offline"  # compute nodes have no internet: sync afterwards with `wandb sync`

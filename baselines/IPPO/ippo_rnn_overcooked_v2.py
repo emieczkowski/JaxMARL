@@ -614,7 +614,13 @@ def flatten_metrics(metric, prefix=""):
 def make_run_name(config):
     env_kwargs = config["ENV_KWARGS"]
     parts = [f"ippo_rnn_overcooked_v2_{env_kwargs['layout']}"]
-    for key, short in (("num_agents", "a"), ("num_pots", "p"), ("pot_cook_time", "c")):
+    for key, short in (
+        ("num_agents", "a"),
+        ("num_pots", "p"),
+        ("pot_cook_time", "c"),
+        ("recipe_size", "r"),
+        ("order_size", "o"),
+    ):
         if env_kwargs.get(key) is not None:
             parts.append(f"{short}{env_kwargs[key]}")
     if env_kwargs.get("no_collision"):
@@ -648,19 +654,20 @@ def main(config):
         train_jit = jax.jit(make_train(config))
         out = jax.vmap(train_jit)(rngs, jnp.arange(num_seeds))
 
-    # Final performance: mean return over the last 10% of updates, per seed
-    returns = np.asarray(out["metrics"]["returned_episode_returns"])
-    final_returns = returns[:, -max(1, returns.shape[1] // 10) :].mean(axis=1)
-    for seed, final_return in enumerate(final_returns):
-        wandb.run.summary[f"seed_{seed}/final_returned_episode_returns"] = float(
-            final_return
-        )
-    wandb.run.summary["final_returned_episode_returns_mean"] = float(
-        final_returns.mean()
-    )
-    wandb.run.summary["final_returned_episode_returns_std"] = float(
-        final_returns.std()
-    )
+    # Final performance: mean over the last 10% of updates, per seed
+    for name in (
+        "returned_episode_returns",
+        "returned_episode_lengths",
+        "returned_episode_order_completed",
+    ):
+        if name not in out["metrics"]:
+            continue
+        values = np.asarray(out["metrics"][name])
+        final_values = values[:, -max(1, values.shape[1] // 10) :].mean(axis=1)
+        for seed, final_value in enumerate(final_values):
+            wandb.run.summary[f"seed_{seed}/final_{name}"] = float(final_value)
+        wandb.run.summary[f"final_{name}_mean"] = float(final_values.mean())
+        wandb.run.summary[f"final_{name}_std"] = float(final_values.std())
     wandb.finish()
 
 
