@@ -5,7 +5,7 @@
   "negative_rewards": True
   "sample_recipe_on_delivery": True
   "random_agent_positions": False  # fixed start positions (see Layout.with_num_agents)
-  "max_steps": 1000  # time limit; episodes normally end earlier, when the order is complete
+  "max_steps": 1500  # time limit; episodes normally end earlier, when the order is complete
   # Swept by experiments/overcooked_v2_scaling/sweep_order.sh
   "no_collision": False  # if True, agents can occupy the same cell / pass through each other
   "pot_cook_time": 20  # steps for a pot to cook a soup

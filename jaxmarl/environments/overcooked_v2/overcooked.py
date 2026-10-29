@@ -1134,6 +1134,25 @@ class OvercookedV2(MultiAgentEnv):
             swap_mask = _compute_swapped_agents(state.agents.pos, new_agents.pos)
             new_agents = new_agents.replace(pos=_masked_positions(swap_mask))
 
+        # One interaction per cell per step (no_collision only): agents sharing a cell
+        # could otherwise all interact with the same object in one step, which collisions
+        # rule out. A random agent among those targeting the same cell gets to interact.
+        if self.no_collision:
+            key, key_priority = jax.random.split(key)
+            priority = jax.random.permutation(key_priority, self.num_agents)
+            fwd_pos, _ = jax.vmap(
+                lambda agent: agent.pos.checked_move(agent.dir, self.width, self.height)
+            )(new_agents)
+            target = fwd_pos.y * self.width + fwd_pos.x
+            is_interact = actions == OvercookedActionsEnum.interact
+            same_target = (
+                (target[:, None] == target[None, :])
+                & is_interact[:, None]
+                & is_interact[None, :]
+            )
+            outranked = jnp.any(same_target & (priority[None, :] < priority[:, None]), axis=1)
+            actions = jnp.where(outranked, OvercookedActionsEnum.stay, actions)
+
         # Interact action:
         def _interact_wrapper(carry, x):
             agent, action = x

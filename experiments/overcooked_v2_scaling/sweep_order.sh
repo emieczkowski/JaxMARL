@@ -7,7 +7,7 @@ CONFIG_NAME=ippo_rnn_overcooked_v2_order
 RUN_PREFIX=OV2_order
 
 AGENTS=(1 2 3 4 5 6 7 8 9 10)
-ORDER_SIZES=(1 3 6)  # soups per order; also the number of pots
+ORDER_SIZES=(1 2 5 10)  # soups per order; also the number of pots
 COOK_TIMES=(5 20 60)  # env steps
 RECIPE_SIZES=(1 3)  # onions per soup
 NO_COLLISION=(True False)

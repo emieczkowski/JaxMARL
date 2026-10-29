@@ -45,6 +45,7 @@ Run names encode the configuration: `ippo_rnn_overcooked_v2_scaling_kitchen_a{ag
   - **Sparse:** 20 per delivered soup, shared: every agent gets the team's reward.
   - **Shaped:** placing an onion in a pot +3, picking up a dish +5, a useful plate pickup +3. The shaped reward is scaled down linearly from 1 to 0 over the first 1.5e7 env steps, so the second half of training uses the sparse reward only.
 - **Collisions on** (the original Overcooked rules): agents block each other and cannot swap places. **Collisions off:** agents can share cells and pass through each other. Counters and pots still block movement, and pot rules are unchanged: 3 ingredients maximum, one soup at a time.
+  - **Simultaneous interactions:** in the code used by the full sweep above, agents sharing a cell can all interact with the same object in one step (e.g. three agents fill a pot at once). Later code (used by the order sweep and any rerun) allows at most one interaction per cell per step when collisions are off, by a random one of the agents trying, matching what collisions allow. Check `GIT_HASH` in a run's config to see which rule it used.
 - **Pot placement** is deterministic, and each pot set is contained in the next larger one. Pots are added in this order: (5,0), (11,5), (0,5), (5,6), (10,0), (1,0), (2,6), (8,6), (3,0), (7,0). Each pot replaces a counter, so P=10 has 14 free counters versus 23 at P=1. With all 10 pots:
   ```
   WPWPWPWPWWPW
@@ -120,12 +121,12 @@ A second sweep in the same layout, designed to match Amdahl's Law: instead of co
 
 ## Design
 
-Full factorial, 10 × 3 × 3 × 2 × 2 = **360 configurations × 5 seeds**. Config `ippo_rnn_overcooked_v2_order.yaml`, sweep file `sweep_order.sh`, W&B project `emiecz-princeton/jaxmarl-overcooked-v2-order`, W&B group `OV2_order_<git hash>_<timestamp>`.
+Full factorial, 10 × 4 × 3 × 2 × 2 = **480 configurations × 5 seeds**. Config `ippo_rnn_overcooked_v2_order.yaml`, sweep file `sweep_order.sh`, W&B project `emiecz-princeton/jaxmarl-overcooked-v2-order`, W&B group `OV2_order_<git hash>_<timestamp>`.
 
 | Factor | Values | W&B config key |
 |---|---|---|
 | Agents | 1–10 | `ENV_KWARGS.num_agents` |
-| Order size K (soups per episode), also the number of pots | 1, 3, 6 | `ENV_KWARGS.order_size`, `ENV_KWARGS.num_pots` |
+| Order size K (soups per episode), also the number of pots | 1, 2, 5, 10 | `ENV_KWARGS.order_size`, `ENV_KWARGS.num_pots` |
 | Pot cooking time (env steps) | 5, 20, 60 | `ENV_KWARGS.pot_cook_time` |
 | Recipe size (onions per soup) | 1, 3 | `ENV_KWARGS.recipe_size` |
 | Collisions | off (`True`) / on (`False`) | `ENV_KWARGS.no_collision` |
@@ -134,8 +135,9 @@ Run names add `_r{recipe size}_o{order size}`, e.g. `ippo_rnn_overcooked_v2_scal
 
 ## Differences from the scaling sweep
 
-- **The episode ends when the order is complete**, i.e. after K correct deliveries, or at the time limit of 1000 steps. Reward is unchanged (20 per soup, plus shaped rewards for the first half of training); the discount (γ = 0.99) is what rewards finishing sooner.
+- **The episode ends when the order is complete**, i.e. after K correct deliveries, or at the time limit of 1500 steps. Reward is unchanged (20 per soup, plus shaped rewards for the first half of training); the discount (γ = 0.99) is what rewards finishing sooner.
 - **Recipe size:** a pot holds at most `recipe_size` onions and starts cooking once it holds that many. With `recipe_size: 1`, a soup is one onion trip plus one plate–pot–delivery trip.
+- **One interaction per cell per step** with collisions off (see the scaling sweep's collision rules).
 - **Fixed start positions** (`random_agent_positions: False`): agents start where `Layout.with_num_agents` places them, so every episode of a configuration is the same job.
 - **Pots** are added in the same order as in the scaling sweep, so they are not equidistant from the piles: the work per soup differs between pots.
 
@@ -145,16 +147,16 @@ As in the scaling sweep, plus:
 
 | Metric | Meaning |
 |---|---|
-| `returned_episode_lengths` | **Completion time** of the most recent finished episode (env steps), or 1000 if the order was not completed. |
+| `returned_episode_lengths` | **Completion time** of the most recent finished episode (env steps), or 1500 if the order was not completed. |
 | `returned_episode_order_completed` | 1 if the most recent finished episode completed the order, 0 if it hit the time limit. Averaged over envs, this is the completion rate. |
 
-Summary keys `final_returned_episode_lengths_{mean,std}` and `final_returned_episode_order_completed_{mean,std}` (and per seed) are computed like `final_returned_episode_returns`. **Main outcome measure: `final_returned_episode_lengths_mean`**, interpreted together with the completion rate (lengths of incomplete episodes are censored at 1000).
+Summary keys `final_returned_episode_lengths_{mean,std}` and `final_returned_episode_order_completed_{mean,std}` (and per seed) are computed like `final_returned_episode_returns`. **Main outcome measure: `final_returned_episode_lengths_mean`**, interpreted together with the completion rate (lengths of incomplete episodes are censored at 1500).
 
 ## Running
 
 ```bash
 SWEEP=sweep_order.sh ./submit.sh --list      # job index -> configuration
-SWEEP=sweep_order.sh ./submit.sh 348,359     # pilot: two of the largest configurations (10 agents, K=6)
+SWEEP=sweep_order.sh ./submit.sh 468,479     # pilot: two of the largest configurations (10 agents, K=10)
 SWEEP=sweep_order.sh ./submit.sh             # full sweep
 ./sync.sh <RUN_DIR>                          # upload to W&B, as for the scaling sweep
 ```
