@@ -1,4 +1,6 @@
 import functools
+import json
+import os
 from typing import Any, Callable, Dict, NamedTuple, Sequence
 
 import distrax
@@ -8,13 +10,20 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
+from flax import serialization
 from flax.linen.initializers import constant, orthogonal
 from flax.training.train_state import TrainState
+from hydra.core.hydra_config import HydraConfig
 from omegaconf import OmegaConf
+from PIL import Image
 
 import jaxmarl
 import wandb
+from jaxmarl.viz.overcooked_v2_visualizer import OvercookedV2Visualizer
 from jaxmarl.wrappers.baselines import OvercookedV2LogWrapper
+
+GIF_FPS = 10
+RENDER_CHUNK = 100  # frames rendered per vmapped call, to bound memory
 
 
 class ScannedRNN(nn.Module):
@@ -611,6 +620,106 @@ def flatten_metrics(metric, prefix=""):
     return flat
 
 
+def save_checkpoints(params, config, out_dir):
+    """Write each seed's final parameters to out_dir/seed_<i>.msgpack, plus config.json.
+
+    Load one with flax.serialization.msgpack_restore(open(path, "rb").read()); the
+    result can be passed to ActorCriticRNN(...).apply directly.
+    """
+    os.makedirs(out_dir, exist_ok=True)
+    with open(os.path.join(out_dir, "config.json"), "w") as f:
+        json.dump(config, f, indent=2)
+    for seed in range(config["NUM_SEEDS"]):
+        seed_params = jax.tree.map(lambda x: np.asarray(x[seed]), params)
+        with open(os.path.join(out_dir, f"seed_{seed}.msgpack"), "wb") as f:
+            f.write(serialization.to_bytes(seed_params))
+
+
+def make_rollout(config):
+    """Returns rollout(params, rng), which plays one episode with a trained policy.
+
+    Actions are sampled from the policy, as in training. The env is not auto-reset, so
+    the episode ends in its real final state. Runs env.max_steps steps and returns
+    (states, rewards, dones): states has the initial state followed by the state after
+    each step; rewards (team reward, sparse) and dones are per step. Steps after the
+    first done are meaningless and should be cut off.
+    """
+    env = jaxmarl.make(config["ENV_NAME"], **config["ENV_KWARGS"])
+    network = ActorCriticRNN(env.action_space(env.agents[0]).n, config=config)
+
+    def rollout(params, rng):
+        rng, rng_reset = jax.random.split(rng)
+        obs, state = env.reset(rng_reset)
+        hstate = ScannedRNN.initialize_carry(env.num_agents, config["GRU_HIDDEN_DIM"])
+        resets = jnp.zeros((1, env.num_agents), dtype=bool)
+
+        def _step(carry, unused):
+            obs, state, hstate, rng = carry
+            obs_batch = jnp.stack([obs[a] for a in env.agents]).astype(jnp.uint8)
+            hstate, pi, _ = network.apply(params, hstate, (obs_batch[np.newaxis], resets))
+            rng, rng_act, rng_step = jax.random.split(rng, 3)
+            action = pi.sample(seed=rng_act)[0]
+            actions = {a: action[i] for i, a in enumerate(env.agents)}
+            obs, state, reward, done, _ = env.step_env(rng_step, state, actions)
+            return (obs, state, hstate, rng), (state, reward[env.agents[0]], done["__all__"])
+
+        _, (states, rewards, dones) = jax.lax.scan(
+            _step, (obs, state, hstate, rng), None, env.max_steps
+        )
+        states = jax.tree.map(
+            lambda first, rest: jnp.concatenate([first[np.newaxis], rest]), state, states
+        )
+        return states, rewards, dones
+
+    return rollout
+
+
+def save_gif(viz, states, agent_view_size, path):
+    frames = []
+    num_frames = len(states.step)
+    for start in range(0, num_frames, RENDER_CHUNK):
+        chunk = jax.tree.map(lambda x: x[start : start + RENDER_CHUNK], states)
+        frames.extend(np.asarray(viz.render_sequence(chunk, agent_view_size)))
+    images = [Image.fromarray(frame) for frame in frames]
+    images[0].save(
+        path,
+        save_all=True,
+        append_images=images[1:],
+        duration=1000 // GIF_FPS,
+        loop=0,
+    )
+
+
+def record_rollouts(params, config, out_dir, rng):
+    """Play one episode per seed with its final policy, save it as out_dir/seed_<i>.gif,
+    and log the GIFs and the episodes' return, length and soups delivered to W&B."""
+    os.makedirs(out_dir, exist_ok=True)
+    rollout = jax.jit(jax.vmap(make_rollout(config)))
+    states, rewards, dones = rollout(params, jax.random.split(rng, config["NUM_SEEDS"]))
+    rewards, dones = np.asarray(rewards), np.asarray(dones)
+
+    viz = OvercookedV2Visualizer()
+    agent_view_size = config["ENV_KWARGS"].get("agent_view_size")
+    final_env_step = config["NUM_UPDATES"] * config["NUM_STEPS"] * config["NUM_ENVS"]
+    log = {"env_step": final_env_step}
+    results = {"return": [], "length": [], "soups": []}
+    for seed in range(config["NUM_SEEDS"]):
+        length = int(np.argmax(dones[seed])) + 1 if dones[seed].any() else len(dones[seed])
+        seed_states = jax.tree.map(lambda x: x[seed, : length + 1], states)
+        path = os.path.join(out_dir, f"seed_{seed}.gif")
+        save_gif(viz, seed_states, agent_view_size, path)
+        log[f"seed_{seed}/rollout"] = wandb.Video(path, fps=GIF_FPS, format="gif")
+
+        results["return"].append(float(rewards[seed, :length].sum()))
+        results["length"].append(length)
+        results["soups"].append(int(seed_states.num_delivered[-1]))
+        for name, values in results.items():
+            wandb.run.summary[f"seed_{seed}/rollout_{name}"] = values[-1]
+    for name, values in results.items():
+        wandb.run.summary[f"rollout_{name}_mean"] = float(np.mean(values))
+    wandb.log(log)
+
+
 def make_run_name(config):
     env_kwargs = config["ENV_KWARGS"]
     parts = [f"ippo_rnn_overcooked_v2_{env_kwargs['layout']}"]
@@ -668,6 +777,18 @@ def main(config):
             wandb.run.summary[f"seed_{seed}/final_{name}"] = float(final_value)
         wandb.run.summary[f"final_{name}_mean"] = float(final_values.mean())
         wandb.run.summary[f"final_{name}_std"] = float(final_values.std())
+
+    # Final policies, and one recorded episode per seed
+    save_dir = config.get("SAVE_DIR") or HydraConfig.get().runtime.output_dir
+    run_name = make_run_name(config)
+    params = out["runner_state"][0].params
+    save_checkpoints(params, config, os.path.join(save_dir, "checkpoints", run_name))
+    record_rollouts(
+        params,
+        config,
+        os.path.join(save_dir, "gifs", run_name),
+        jax.random.fold_in(jax.random.PRNGKey(config["SEED"]), 1),
+    )
     wandb.finish()
 
 

@@ -10,7 +10,7 @@ Exploratory sweep of how IPPO performance in Overcooked V2 changes with team siz
 | Full sweep | W&B group `OV2_scaling_<git hash>_<timestamp>` (SLURM array job `16320373`, launched 2026-10-27). 800 runs expected. |
 | Pilot (exclude) | W&B group `OV2_scaling_a17b370_20261027_102906`: 2 runs (`a10_p10_c60`, with and without `_nocoll`), cancelled at ~8% of training. |
 | Code | `scaling` branch, commit `a17b370`. The commit is also stored as `GIT_HASH` in each run's config. |
-| Raw files (Della) | `/scratch/gpfs/GRIFFITHS/em4240/runs/<group>/`: `logs/` (SLURM output), `wandb/` (offline runs, uploaded with `sync.sh`), `code/` (exact code used). |
+| Raw files (Della) | `/scratch/gpfs/GRIFFITHS/em4240/runs/<group>/`: `logs/` (SLURM output), `wandb/` (offline runs, uploaded with `sync.sh`), `code/` (exact code used), and for newer runs `checkpoints/` and `gifs/` (see "Saved policies and rollouts"). |
 
 Runs can appear in W&B gradually while the sweep is running, since they are uploaded with `sync.sh`.
 
@@ -105,6 +105,30 @@ for run in runs:
     kw = run.config["ENV_KWARGS"]
     kw["num_agents"], kw["num_pots"], kw["pot_cook_time"], kw["no_collision"]
     run.summary.get("final_returned_episode_returns_mean")
+```
+
+**Saved policies and rollouts.** Runs from code after commit `9d3c8f5` also save, at the end of training:
+
+| Where | What |
+|---|---|
+| `<RUN_DIR>/checkpoints/<run name>/seed_{i}.msgpack` | Final network parameters of seed `i`. `config.json` in the same folder has the run's full config. |
+| `<RUN_DIR>/gifs/<run name>/seed_{i}.gif` | One episode played by seed `i`'s final policy (actions sampled, as in training; 10 frames per second). |
+| W&B media `seed_{i}/rollout` | The same GIF, logged at the final `env_step`. |
+| W&B summary `seed_{i}/rollout_{return,length,soups}`, `rollout_{return,length,soups}_mean` | Sparse return, length and soups delivered in that one episode. A single episode per seed, so noisier than `final_*`. |
+
+Reloading a policy and playing more episodes (e.g. to measure labor per soup, pot idle time or congestion):
+
+```python
+import json
+import jax
+from flax.serialization import msgpack_restore
+from baselines.IPPO.ippo_rnn_overcooked_v2 import make_rollout  # run from the repo root
+
+config = json.load(open(f"{ckpt_dir}/config.json"))
+params = msgpack_restore(open(f"{ckpt_dir}/seed_0.msgpack", "rb").read())
+rollout = jax.jit(jax.vmap(make_rollout(config), in_axes=(None, 0)))
+states, rewards, dones = rollout(params, jax.random.split(jax.random.PRNGKey(0), 100))
+# per episode: cut each sequence at its first done (states has one extra, initial, entry)
 ```
 
 ## Caveats for analysis

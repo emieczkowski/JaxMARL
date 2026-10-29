@@ -41,5 +41,6 @@
 "PROJECT": "jaxmarl-overcooked-v2-scaling"
 "GROUP": null  # set to the sweep's run directory name by run.slurm
 "GIT_HASH": null  # set by run.slurm
+"SAVE_DIR": null  # set by run.slurm: checkpoints/ and gifs/ go here (default: the Hydra output dir)
 "TAGS": ["scaling"]
 "WANDB_MODE" : "offline"  # compute nodes have no internet: sync afterwards with `wandb sync`

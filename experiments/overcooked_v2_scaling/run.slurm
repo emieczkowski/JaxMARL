@@ -27,4 +27,5 @@ python "$CODE_DIR/baselines/IPPO/ippo_rnn_overcooked_v2.py" \
   "${JOB_ARGS[@]}" \
   GROUP="$(basename "$RUN_DIR")" \
   GIT_HASH="$GIT_HASH" \
+  SAVE_DIR="$RUN_DIR" \
   hydra.run.dir="$RUN_DIR/hydra/$SLURM_ARRAY_TASK_ID"
