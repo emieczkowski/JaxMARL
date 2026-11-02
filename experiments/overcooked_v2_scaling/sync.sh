@@ -19,4 +19,5 @@ done
 echo "${#to_sync[@]} run(s) to sync"
 [ ${#to_sync[@]} -eq 0 ] && exit 0
 
-wandb sync "${to_sync[@]}"
+# --include-synced: without it, wandb sync skips any run synced before, even one with new data
+wandb sync --include-synced "${to_sync[@]}"

@@ -202,4 +202,4 @@ A configuration may have several runs (a failed run and its rerun, in different 
 2. When the jobs are done, `./sync.sh <new RUN_DIR>`.
 3. Run `fetch_order_results.py` again: reruns replace the failed runs automatically.
 
-**First launch (group `OV2_order_6712a70_20261029_133840`):** 354 of 480 configurations finished. All 48 ten-agent jobs hit the 6-hour limit (they need about 6.5 hours; the limit is now 9 hours). 78 others (job indices 43–84 and 332–375, mostly 2 and 8 agents) stopped early at varied runtimes, two blocks of jobs that were running at the same time.
+**First launch (group `OV2_order_6712a70_20261029_133840`):** all 48 ten-agent jobs (indices 432–479) hit the 6-hour limit; they need about 6.5 hours, and the limit is now 9 hours. All other configurations finished. (78 runs first looked failed because they were synced mid-training and older `sync.sh` did not upload their later data; `sync.sh` now passes `--include-synced` to `wandb sync`.)
