@@ -137,7 +137,7 @@ states, rewards, dones = rollout(params, jax.random.split(jax.random.PRNGKey(0),
 - **Single-agent duplicates:** with 1 agent, collisions on and off behave identically. With the same seeds, these pairs should give (near-)identical results, which is a useful check on run-to-run noise.
 - **Returns are team totals**, not per agent. Divide by the number of agents for per-capita productivity.
 - **Shared-cell observations:** with collisions off, the "other agents" observation channels count how many agents share a cell, so values can be above 1.
-- **Incomplete runs:** check `run.state` and the presence of the summary keys. A run that hit the 10-hour SLURM limit has history but no `final_*` summary.
+- **Incomplete runs:** check `run.state` and the presence of the summary keys. A run that hit the SLURM time limit has history but no `final_*` summary.
 
 # Order sweep (fixed-work variant)
 
@@ -186,3 +186,20 @@ SWEEP=sweep_order.sh ./submit.sh             # full sweep
 ```
 
 Without `SWEEP`, `submit.sh` runs the scaling sweep (`sweep.sh`) as before.
+
+## Downloading results and rerunning failed jobs
+
+`fetch_order_results.py` downloads every run in the W&B project to `results/order/` (`runs.csv`, `seeds.csv`, `history.csv.gz`, `metadata.json`; columns are described at the top of the script). Run it locally with the jaxmarl env:
+
+```bash
+python fetch_order_results.py               # summaries + learning curves
+python fetch_order_results.py --no-history  # summaries only (fast)
+```
+
+A configuration may have several runs (a failed run and its rerun, in different W&B groups). For each configuration the script selects the most recent run that finished training (`selected` in `runs.csv`); `seeds.csv` and `history.csv.gz` contain only selected runs. It then prints the configurations that still have no finished run, as a `submit.sh` command. To rerun them:
+
+1. Run that command on Della, e.g. `SWEEP=sweep_order.sh ./submit.sh 43-44,47-50,...`. It creates a new run directory and W&B group.
+2. When the jobs are done, `./sync.sh <new RUN_DIR>`.
+3. Run `fetch_order_results.py` again: reruns replace the failed runs automatically.
+
+**First launch (group `OV2_order_6712a70_20261029_133840`):** 354 of 480 configurations finished. All 48 ten-agent jobs hit the 6-hour limit (they need about 6.5 hours; the limit is now 9 hours). 78 others (job indices 43–84 and 332–375, mostly 2 and 8 agents) stopped early at varied runtimes, two blocks of jobs that were running at the same time.
