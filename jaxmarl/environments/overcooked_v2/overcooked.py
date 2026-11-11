@@ -106,6 +106,7 @@ class OvercookedV2(MultiAgentEnv):
         pot_cook_time: int = POT_COOK_TIME,
         num_agents: Optional[int] = None,
         num_pots: Optional[int] = None,
+        pot_placement: str = "spread",
         recipe_size: int = 3,
         order_size: Optional[int] = None,
     ):
@@ -130,6 +131,7 @@ class OvercookedV2(MultiAgentEnv):
             pot_cook_time (int): Number of steps a pot takes to cook a soup.
             num_agents (Optional[int]): Number of agents. None uses the agents of the layout, otherwise agents are added to / removed from the layout (see Layout.with_num_agents).
             num_pots (Optional[int]): Number of pots. None uses the pots of the layout, otherwise pots are added to / removed from the layout (see Layout.with_num_pots).
+            pot_placement (str): How pots are chosen when num_pots is set: "spread" keeps the layout's pots and adds each new pot farthest from the existing ones; "nearest" uses the cells where a soup takes the fewest steps (see Layout.with_num_pots).
             recipe_size (int): Number of ingredients in a soup (1-3). Pots hold at most this many ingredients and cook once full. If not 3, the layout's recipes are replaced by all recipes of this size (see Layout.with_recipe_size).
             order_size (Optional[int]): If set, the episode ends once this many correct soups have been delivered (or at max_steps, whichever comes first).
         """
@@ -146,7 +148,7 @@ class OvercookedV2(MultiAgentEnv):
         if num_agents is not None:
             layout = layout.with_num_agents(num_agents)
         if num_pots is not None:
-            layout = layout.with_num_pots(num_pots)
+            layout = layout.with_num_pots(num_pots, placement=pot_placement)
         if recipe_size != 3:
             layout = layout.with_recipe_size(recipe_size)
         self.recipe_size = recipe_size

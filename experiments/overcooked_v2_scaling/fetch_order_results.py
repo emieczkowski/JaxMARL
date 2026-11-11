@@ -15,10 +15,12 @@ Writes to --out (default: results/order next to this script):
 runs.csv     One row per W&B run (one configuration, 5 seeds trained together), including
              failed and superseded runs. `selected` marks the run used for its
              configuration; analyses should filter on it.
-             Config: num_agents, order_size (= num_pots), pot_cook_time, recipe_size,
-             no_collision, max_steps (censoring limit). Run info: run_id, name, group,
+             Config: num_agents, num_pots, order_size, pot_cook_time, recipe_size,
+             no_collision, max_steps (censoring limit), pot_placement ("spread" for
+             runs from before it existed). sweep_order.sh: num_pots = order_size, spread
+             pots; sweep_order_pots.sh: crossed, nearest pots. Run info: run_id, name, group,
              state, created_at, git_hash, runtime_h, sweep_index (job index in
-             sweep_order.sh), has_final (False if the run did not finish training: its
+             sweep_order_pots.sh), has_final (False if the run did not finish training: its
              final_* columns are empty). Outcomes (mean/std across seeds):
                final_length_*     completion time: mean returned_episode_lengths over the
                                   last 10% of updates; episodes that did not complete the
@@ -51,10 +53,11 @@ import wandb
 
 PROJECT = "emiecz-princeton/jaxmarl-overcooked-v2-order"
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-SWEEP_FILE = "sweep_order.sh"
-CONFIG_KEYS = ["num_agents", "order_size", "num_pots", "pot_cook_time", "recipe_size", "no_collision", "max_steps"]
+SWEEP_FILE = "sweep_order_pots.sh"  # the crossed grid (nearest pots); sweep_order.sh runs are outside it
+CONFIG_KEYS = ["num_agents", "order_size", "num_pots", "pot_placement", "pot_cook_time", "recipe_size", "no_collision", "max_steps"]
+DEFAULTS = {"pot_placement": "spread"}  # for runs from before the key existed
 # Swept keys: together they identify a configuration
-SWEPT_KEYS = ["num_agents", "order_size", "pot_cook_time", "recipe_size", "no_collision"]
+SWEPT_KEYS = ["num_agents", "num_pots", "pot_placement", "order_size", "pot_cook_time", "recipe_size", "no_collision"]
 # summary key suffix -> column name
 FINAL_KEYS = {
     "final_returned_episode_lengths": "final_length",
@@ -77,8 +80,7 @@ def sweep_indices():
     for line in listing.splitlines():
         index, *args = line.split()
         kwargs = dict(arg.removeprefix("ENV_KWARGS.").split("=") for arg in args)
-        key = tuple(kwargs[k] == "True" if k == "no_collision" else int(kwargs[k]) for k in SWEPT_KEYS)
-        indices[key] = int(index)
+        indices[config_key({**DEFAULTS, **kwargs})] = int(index)
     return indices
 
 
@@ -94,7 +96,15 @@ def array_spec(indices):
 
 
 def config_key(row):
-    return tuple(bool(row[k]) if k == "no_collision" else int(row[k]) for k in SWEPT_KEYS)
+    """Configuration as a hashable tuple, from a runs.csv row or a sweep file's overrides."""
+
+    def value(k):
+        v = row[k]
+        if k == "no_collision":
+            return v in (True, "True")
+        return str(v) if k == "pot_placement" else int(v)
+
+    return tuple(value(k) for k in SWEPT_KEYS)
 
 
 def run_rows(run):
@@ -109,11 +119,11 @@ def run_rows(run):
         "created_at": run.created_at,
         "git_hash": run.config.get("GIT_HASH"),
         "runtime_h": summary.get("_runtime", np.nan) / 3600,
-        **{k: env_kwargs.get(k) for k in CONFIG_KEYS},
+        **{k: env_kwargs.get(k, DEFAULTS.get(k)) for k in CONFIG_KEYS},
     }
     seeds = []
     for seed in range(run.config["NUM_SEEDS"]):
-        row = {"run_id": run.id, **{k: env_kwargs.get(k) for k in CONFIG_KEYS}, "seed": seed}
+        row = {"run_id": run.id, **{k: env_kwargs.get(k, DEFAULTS.get(k)) for k in CONFIG_KEYS}, "seed": seed}
         for key, col in FINAL_KEYS.items():
             row[col] = summary.get(f"seed_{seed}/{key}", np.nan)
         seeds.append(row)
@@ -173,7 +183,7 @@ def main():
     runs_df["sweep_index"] = [indices.get(config_key(row)) for _, row in runs_df.iterrows()]
     runs_df = runs_df.sort_values(["has_final", "created_at"], ascending=False)
     runs_df["selected"] = runs_df["has_final"] & ~runs_df.duplicated(SWEPT_KEYS)
-    runs_df = runs_df.sort_values(["order_size", "pot_cook_time", "recipe_size", "no_collision", "num_agents", "created_at"])
+    runs_df = runs_df.sort_values(["pot_placement", "num_pots", "order_size", "pot_cook_time", "recipe_size", "no_collision", "num_agents", "created_at"])
     selected_ids = set(runs_df.loc[runs_df["selected"], "run_id"])
     seeds_df = pd.DataFrame(seeds)
     seeds_df = seeds_df[seeds_df["run_id"].isin(selected_ids)]

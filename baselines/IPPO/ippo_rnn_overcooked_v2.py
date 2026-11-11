@@ -732,6 +732,8 @@ def make_run_name(config):
     ):
         if env_kwargs.get(key) is not None:
             parts.append(f"{short}{env_kwargs[key]}")
+    if env_kwargs.get("pot_placement", "spread") != "spread":
+        parts.append(env_kwargs["pot_placement"])
     if env_kwargs.get("no_collision"):
         parts.append("nocoll")
     return "_".join(parts)

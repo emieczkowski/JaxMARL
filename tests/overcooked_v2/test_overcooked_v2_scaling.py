@@ -115,6 +115,36 @@ def test_added_pots_stay_in_pot_rooms():
         assert layout._adjacent_rooms(rooms, y, x) <= pot_rooms
 
 
+def _pot_cells(layout):
+    return {(int(y), int(x)) for y, x in zip(*np.nonzero(layout.static_objects == StaticObject.POT))}
+
+
+def test_nearest_pots_cheapest_and_nested():
+    # Pots are chosen cheapest first, each set contains the previous one, and adding
+    # pots never adds a cheaper one
+    base = overcooked_v2_layouts["scaling_kitchen"]
+    empty = base.with_num_pots(0).static_objects
+    previous = set()
+    for num_pots in range(1, 11):
+        pots = _pot_cells(base.with_num_pots(num_pots, placement="nearest"))
+        assert len(pots) == num_pots and previous <= pots
+        (new,) = pots - previous
+        costs = [Layout._soup_cost(empty, p) for p in previous]
+        assert all(Layout._soup_cost(empty, new) >= c for c in costs)
+        previous = pots
+    # the first two pots are the two cheapest (mirror-image) cells, one per side
+    two = _pot_cells(base.with_num_pots(2, placement="nearest"))
+    assert two == {(0, 1), (0, 10)}
+
+
+def test_nearest_pots_via_env():
+    env = OvercookedV2(layout="scaling_kitchen", num_agents=3, num_pots=4, pot_placement="nearest")
+    assert _num_pots(env.layout.static_objects) == 4
+    _rollout(env)
+    with pytest.raises(ValueError):
+        OvercookedV2(layout="scaling_kitchen", num_pots=2, pot_placement="closest")
+
+
 def test_too_many_raises():
     with pytest.raises(ValueError):
         OvercookedV2(layout="cramped_room", num_agents=7)

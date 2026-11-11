@@ -1,5 +1,6 @@
 import dataclasses
 import itertools
+from collections import deque
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
@@ -324,20 +325,31 @@ class Layout:
             ),
         )
 
-    def with_num_pots(self, num_pots: int) -> "Layout":
+    def with_num_pots(self, num_pots: int, placement: str = "spread") -> "Layout":
         """Return a copy of this layout with `num_pots` pots.
 
         Only rooms that contain an agent and can already reach a pot are used
         (all agent rooms if the layout has no pots), so the division of labour
-        between rooms is preserved.
-        Removing: pots are turned into counters, starting from the last pot
-        (row-major) whose rooms can still reach another pot.
-        Adding: counters bordering exactly one of those rooms (never hand-over
-        counters between rooms) are turned into pots, each time choosing the
-        counter farthest (Manhattan) from the existing pots.
+        between rooms is preserved. Candidate cells are counters bordering exactly
+        one of those rooms (never hand-over counters between rooms).
+
+        placement="spread" (default): keeps the layout's pots.
+            Removing: pots are turned into counters, starting from the last pot
+            (row-major) whose rooms can still reach another pot.
+            Adding: each time the candidate farthest (Manhattan) from the existing
+            pots becomes a pot.
+        placement="nearest": the layout's pots are removed and the `num_pots`
+            cheapest candidates become pots, where a candidate's cost is the walking
+            distance of one 3-ingredient soup made there (see _soup_cost). Ties go to
+            the candidate farthest from the pots already chosen, then row-major.
+            Each pot set is contained in the next larger one, and adding a pot never
+            makes the cheapest pot cheaper, so the number of pots changes capacity
+            without bringing pots closer.
         """
         if num_pots < 0:
             raise ValueError("num_pots must be non-negative")
+        if placement not in ("spread", "nearest"):
+            raise ValueError(f"Unknown pot placement: {placement}")
 
         static_objects = self.static_objects.copy()
         rooms = self._rooms()
@@ -350,6 +362,34 @@ class Layout:
             return self._adjacent_rooms(rooms, *pot) & agent_rooms
 
         target_rooms = set().union(*map(_pot_rooms, _pots())) or agent_rooms
+
+        if placement == "nearest":
+            for y, x in _pots():
+                static_objects[y, x] = StaticObject.WALL
+            candidates = [
+                (int(y), int(x))
+                for y, x in zip(*np.nonzero(static_objects == StaticObject.WALL))
+                if len(self._adjacent_rooms(rooms, y, x)) == 1
+                and self._adjacent_rooms(rooms, y, x) <= target_rooms
+            ]
+            if len(candidates) < num_pots:
+                raise ValueError(
+                    f"Not enough free counters to place {num_pots} pots in this layout"
+                )
+            cost = {c: self._soup_cost(static_objects, c) for c in candidates}
+            chosen = []
+            for _ in range(num_pots):
+                c = min(
+                    (c for c in candidates if c not in chosen),
+                    key=lambda c: (
+                        cost[c],
+                        -min((abs(c[0] - p[0]) + abs(c[1] - p[1]) for p in chosen), default=0),
+                        c,
+                    ),
+                )
+                chosen.append(c)
+                static_objects[c] = StaticObject.POT
+            return dataclasses.replace(self, static_objects=static_objects)
 
         while len(_pots()) > num_pots:
             pots = _pots()
@@ -384,6 +424,68 @@ class Layout:
             static_objects[y, x] = StaticObject.POT
 
         return dataclasses.replace(self, static_objects=static_objects)
+
+    @staticmethod
+    def _soup_cost(static_objects: np.ndarray, pot: Tuple[int, int], ingredients: int = 3) -> int:
+        """Steps for one agent to make one soup in `pot` ((y, x)) and deliver it, starting
+        and ending at a delivery cell: `ingredients` ingredient trips, then plate, pot,
+        delivery, always going to the nearest pile / delivery cell. Movement follows the
+        environment: a move turns the agent to face its direction (also when blocked),
+        and an interaction needs the agent to face the object (+1 step). The cheaper of
+        the delivery cells to start from is used."""
+        height, width = static_objects.shape
+        free = static_objects == StaticObject.EMPTY
+        moves = ((-1, 0), (1, 0), (0, -1), (0, 1))
+
+        def bfs(start):
+            """Steps from start (y, x, facing) to every reachable (y, x, facing)."""
+            dist = {start: 0}
+            queue = deque([start])
+            while queue:
+                y, x, _ = state = queue.popleft()
+                for d, (dy, dx) in enumerate(moves):
+                    ny, nx = y + dy, x + dx
+                    if 0 <= ny < height and 0 <= nx < width and free[ny, nx]:
+                        nxt = (ny, nx, d)
+                    else:
+                        nxt = (y, x, d)
+                    if nxt not in dist:
+                        dist[nxt] = dist[state] + 1
+                        queue.append(nxt)
+            return dist
+
+        def facing(cells):
+            """States (y, x, facing) facing one of cells from a free neighbour."""
+            return [
+                (y - dy, x - dx, d)
+                for y, x in cells
+                for d, (dy, dx) in enumerate(moves)
+                if 0 <= y - dy < height and 0 <= x - dx < width and free[y - dy, x - dx]
+            ]
+
+        def cells(pred):
+            return [(int(y), int(x)) for y, x in zip(*np.nonzero(pred(static_objects)))]
+
+        piles = cells(StaticObject.is_ingredient_pile)
+        plates = cells(lambda s: s == StaticObject.PLATE_PILE)
+        goals = cells(lambda s: s == StaticObject.GOAL)
+        route = [piles, [pot]] * ingredients + [plates, [pot], goals]
+
+        best = None
+        for start in facing(goals):
+            state, total = start, 0
+            for targets in route:
+                dist = bfs(state)
+                reachable = [(dist[t], t) for t in facing(targets) if t in dist]
+                if not reachable:
+                    break
+                steps, state = min(reachable)
+                total += steps + 1
+            else:
+                best = total if best is None else min(best, total)
+        if best is None:
+            raise ValueError(f"No soup can be made in the pot at {pot}")
+        return best
 
     @staticmethod
     def from_string(grid, possible_recipes=None, swap_agents=False):
