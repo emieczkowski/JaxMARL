@@ -11,7 +11,7 @@
   "pot_cook_time": 20  # steps for a pot to cook a soup
   "num_agents": 2  # agents are added to / removed from the layout
   "num_pots": 3  # pots are added to / removed from the layout
-  "pot_placement": "spread"  # which cells become pots: "spread" (farthest apart) or "nearest" (cheapest soup first)
+  "pot_placement": "spread"  # which cells become pots: "spread" (farthest apart) or "balanced" (most centred slots, for scaling_stations)
   "recipe_size": 1  # onions per soup; pots cook once they hold this many
   "order_size": 3  # the episode ends once this many soups have been delivered
 

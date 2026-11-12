@@ -15,10 +15,11 @@ Writes to --out (default: results/order next to this script):
 runs.csv     One row per W&B run (one configuration, 5 seeds trained together), including
              failed and superseded runs. `selected` marks the run used for its
              configuration; analyses should filter on it.
-             Config: num_agents, num_pots, order_size, pot_cook_time, recipe_size,
-             no_collision, max_steps (censoring limit), pot_placement ("spread" for
-             runs from before it existed). sweep_order.sh: num_pots = order_size, spread
-             pots; sweep_order_pots.sh: crossed, nearest pots. Run info: run_id, name, group,
+             Config: layout, num_agents, num_pots, order_size, pot_cook_time,
+             recipe_size, no_collision, max_steps (censoring limit), pot_placement
+             ("spread" for runs from before it existed). sweep_order.sh: scaling_kitchen,
+             num_pots = order_size, spread pots; sweep_order_pots.sh: scaling_stations,
+             pots and order size crossed, balanced pots. Run info: run_id, name, group,
              state, created_at, git_hash, runtime_h, sweep_index (job index in
              sweep_order_pots.sh), has_final (False if the run did not finish training: its
              final_* columns are empty). Outcomes (mean/std across seeds):
@@ -53,11 +54,11 @@ import wandb
 
 PROJECT = "emiecz-princeton/jaxmarl-overcooked-v2-order"
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-SWEEP_FILE = "sweep_order_pots.sh"  # the crossed grid (nearest pots); sweep_order.sh runs are outside it
-CONFIG_KEYS = ["num_agents", "order_size", "num_pots", "pot_placement", "pot_cook_time", "recipe_size", "no_collision", "max_steps"]
+SWEEP_FILE = "sweep_order_pots.sh"  # the crossed grid (scaling_stations); sweep_order.sh runs are outside it
+CONFIG_KEYS = ["layout", "num_agents", "order_size", "num_pots", "pot_placement", "pot_cook_time", "recipe_size", "no_collision", "max_steps"]
 DEFAULTS = {"pot_placement": "spread"}  # for runs from before the key existed
 # Swept keys: together they identify a configuration
-SWEPT_KEYS = ["num_agents", "num_pots", "pot_placement", "order_size", "pot_cook_time", "recipe_size", "no_collision"]
+SWEPT_KEYS = ["layout", "num_agents", "num_pots", "pot_placement", "order_size", "pot_cook_time", "recipe_size", "no_collision"]
 # summary key suffix -> column name
 FINAL_KEYS = {
     "final_returned_episode_lengths": "final_length",
@@ -102,7 +103,7 @@ def config_key(row):
         v = row[k]
         if k == "no_collision":
             return v in (True, "True")
-        return str(v) if k == "pot_placement" else int(v)
+        return str(v) if k in ("layout", "pot_placement") else int(v)
 
     return tuple(value(k) for k in SWEPT_KEYS)
 
@@ -183,7 +184,7 @@ def main():
     runs_df["sweep_index"] = [indices.get(config_key(row)) for _, row in runs_df.iterrows()]
     runs_df = runs_df.sort_values(["has_final", "created_at"], ascending=False)
     runs_df["selected"] = runs_df["has_final"] & ~runs_df.duplicated(SWEPT_KEYS)
-    runs_df = runs_df.sort_values(["pot_placement", "num_pots", "order_size", "pot_cook_time", "recipe_size", "no_collision", "num_agents", "created_at"])
+    runs_df = runs_df.sort_values(["layout", "pot_placement", "num_pots", "order_size", "pot_cook_time", "recipe_size", "no_collision", "num_agents", "created_at"])
     selected_ids = set(runs_df.loc[runs_df["selected"], "run_id"])
     seeds_df = pd.DataFrame(seeds)
     seeds_df = seeds_df[seeds_df["run_id"].isin(selected_ids)]

@@ -1,17 +1,18 @@
 """Structural (a priori) Amdahl / roofline predictions for the order sweep.
 
 Everything here comes from the layout and the task rules; no training results are used.
-For each number of pots P, order size K, recipe size r, cook time T and collision setting
-and pot placement (sweep_order.sh: P = K, spread pots; sweep_order_pots.sh: P and K
-crossed, nearest pots first):
+For each kitchen (layout and pot placement), number of pots P, order size K, recipe size
+r, cook time T and collision setting (sweep_order.sh: scaling_kitchen, spread pots, P = K;
+sweep_order_pots.sh: scaling_stations, balanced pots, P and K crossed):
 
 Soups can go in any pot, and a pot can be reused once its soup is picked up, so an
 order of K soups need not use all P pots, and with K > P some pots must be reused.
 
 T1   Fastest single-agent completion time (env steps): the best of several schedules
      (pot by pot; filling the next pot while the previous one cooks; filling a batch of
-     pots then serving them) using the m pots with the cheapest soups in rotation, for
-     every m. Shortest paths include the turns needed to face an object.
+     pots then serving them) rotating through m pots, for every m, over every choice and
+     order of the m pots (or, when there are too many, the cheapest pots and chains of
+     nearby cheap pots). Shortest paths include the turns needed to face an object.
 W    Pure labor: the same schedules with cooking taking no time.
 C    Critical path with unlimited agents: pots are worked in parallel; a pot's r
      onions are carried by r agents at once but enter the pot one interaction per step
@@ -34,6 +35,7 @@ Usage: python amdahl_predictions.py  ->  results/order/predictions.csv
 """
 
 import itertools
+import math
 import os
 from collections import deque
 
@@ -43,7 +45,7 @@ import pandas as pd
 from jaxmarl.environments.overcooked_v2.common import StaticObject
 from jaxmarl.environments.overcooked_v2.overcooked import OvercookedV2
 
-PLACEMENTS = ("spread", "nearest")  # pot_placement of the env (see Layout.with_num_pots)
+KITCHENS = (("scaling_kitchen", "spread"), ("scaling_stations", "balanced"))  # (layout, pot_placement)
 POT_COUNTS = (1, 2, 5, 10)
 ORDER_SIZES = (1, 2, 5, 10)
 RECIPE_SIZES = (1, 3)
@@ -57,8 +59,8 @@ MOVES = [(0, -1), (0, 1), (1, 0), (-1, 0)]  # a move sets the facing even when b
 class Kitchen:
     """Shortest paths over (x, y, facing) in the layout with P pots."""
 
-    def __init__(self, num_pots, placement="spread"):
-        env = OvercookedV2(layout="scaling_kitchen", num_pots=num_pots, num_agents=MAX_AGENTS, pot_placement=placement)
+    def __init__(self, num_pots, layout="scaling_kitchen", placement="spread"):
+        env = OvercookedV2(layout=layout, num_pots=num_pots, num_agents=MAX_AGENTS, pot_placement=placement)
         self.static = np.asarray(env.layout.static_objects)
         self.height, self.width = self.static.shape
         self.starts = [(int(x), int(y)) for x, y in env.layout.agent_positions]
@@ -160,12 +162,31 @@ def best_solo(kitchen, r, T, K):
         cost[pot] = t
     ranked = sorted(kitchen.pots, key=cost.get)
     best = None
-    for m in range(1, len(ranked) + 1):
-        soups = [ranked[i % m] for i in range(K)]
-        for plan in solo_plans(soups):
-            t = solo_time(kitchen, r, T, plan)
-            best = t if best is None else min(best, t)
+    for m in range(1, min(len(ranked), K) + 1):
+        for pots in pot_sequences(ranked, cost, m):
+            soups = [pots[i % m] for i in range(K)]
+            for plan in solo_plans(soups):
+                t = solo_time(kitchen, r, T, plan)
+                best = t if best is None else min(best, t)
     return best
+
+
+def pot_sequences(ranked, cost, m, max_orders=1000):
+    """Candidate sequences of m distinct pots to rotate through: every ordering when there
+    are at most max_orders, else the m cheapest pots and, from each pot, a chain that keeps
+    adding the cheapest pot nearest (Manhattan) to the last one. Pots that cost the same
+    (e.g. scaling_stations) differ in how far apart they are, so their choice matters."""
+    if math.perm(len(ranked), m) <= max_orders:
+        yield from itertools.permutations(ranked, m)
+        return
+    yield tuple(ranked[:m])
+    for first in ranked:
+        chain = [first]
+        while len(chain) < m:
+            last = chain[-1]
+            chain.append(min((p for p in ranked if p not in chain),
+                             key=lambda p: (cost[p], abs(p[0] - last[0]) + abs(p[1] - last[1]))))
+        yield tuple(chain)
 
 
 def critical_path(kitchen, r, T, K, collisions):
@@ -212,14 +233,14 @@ def critical_path(kitchen, r, T, K, collisions):
 
 def main():
     rows = []
-    for placement, P in itertools.product(PLACEMENTS, POT_COUNTS):
-        kitchen = Kitchen(P, placement)
+    for (layout, placement), P in itertools.product(KITCHENS, POT_COUNTS):
+        kitchen = Kitchen(P, layout, placement)
         for K, r, T in itertools.product(ORDER_SIZES, RECIPE_SIZES, COOK_TIMES):
             T1 = best_solo(kitchen, r, T, K)
             W = best_solo(kitchen, r, 0, K)
             for no_collision in (True, False):
                 C = critical_path(kitchen, r, T, K, collisions=not no_collision)
-                rows.append(dict(pot_placement=placement, num_pots=P, order_size=K, recipe_size=r, pot_cook_time=T, no_collision=no_collision,
+                rows.append(dict(layout=layout, pot_placement=placement, num_pots=P, order_size=K, recipe_size=r, pot_cook_time=T, no_collision=no_collision,
                                  T1=T1, W=W, C=C, f=C / T1, S_max=T1 / C))
     df = pd.DataFrame(rows)
     os.makedirs(os.path.dirname(OUT), exist_ok=True)

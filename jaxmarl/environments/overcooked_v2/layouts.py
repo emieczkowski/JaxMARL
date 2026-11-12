@@ -211,6 +211,18 @@ W          W
 WWWWWWWWWWWW
 """
 
+# Ten identical workstations (onion pile, pot slot, plate pile, a delivery cell two steps
+# away on each side), five on the top wall and five on the bottom: one soup takes the same
+# number of steps at every pot. Meant to be used with num_pots and pot_placement="balanced",
+# which keeps the most centred pot slots and turns the others into counters.
+scaling_stations = """
+WX0PBX0PBX0PBX0PBX0PBXW
+W                     W
+W          A          W
+W                     W
+WX0PBX0PBX0PBX0PBX0PBXW
+"""
+
 
 @dataclass
 class Layout:
@@ -338,17 +350,17 @@ class Layout:
             (row-major) whose rooms can still reach another pot.
             Adding: each time the candidate farthest (Manhattan) from the existing
             pots becomes a pot.
-        placement="nearest": the layout's pots are removed and the `num_pots`
-            cheapest candidates become pots, where a candidate's cost is the walking
-            distance of one 3-ingredient soup made there (see _soup_cost). Ties go to
-            the candidate farthest from the pots already chosen, then row-major.
-            Each pot set is contained in the next larger one, and adding a pot never
-            makes the cheapest pot cheaper, so the number of pots changes capacity
-            without bringing pots closer.
+        placement="balanced": for layouts whose pots are interchangeable slots (e.g.
+            scaling_stations). Keeps the `num_pots` of the layout's pots that are
+            most balanced: fewest pots whose left-right mirror image is not kept, then
+            centroid closest to the centre of the grid (horizontal offset first, then
+            vertical), then the smallest total distance to the centre, then row-major
+            (top first). The others become counters; pots are never added. Sets for
+            different counts need not be nested.
         """
         if num_pots < 0:
             raise ValueError("num_pots must be non-negative")
-        if placement not in ("spread", "nearest"):
+        if placement not in ("spread", "balanced"):
             raise ValueError(f"Unknown pot placement: {placement}")
 
         static_objects = self.static_objects.copy()
@@ -363,32 +375,32 @@ class Layout:
 
         target_rooms = set().union(*map(_pot_rooms, _pots())) or agent_rooms
 
-        if placement == "nearest":
-            for y, x in _pots():
-                static_objects[y, x] = StaticObject.WALL
-            candidates = [
-                (int(y), int(x))
-                for y, x in zip(*np.nonzero(static_objects == StaticObject.WALL))
-                if len(self._adjacent_rooms(rooms, y, x)) == 1
-                and self._adjacent_rooms(rooms, y, x) <= target_rooms
-            ]
-            if len(candidates) < num_pots:
+        if placement == "balanced":
+            pots = sorted((int(y), int(x)) for y, x in _pots())
+            if num_pots > len(pots):
                 raise ValueError(
-                    f"Not enough free counters to place {num_pots} pots in this layout"
+                    f"The layout has {len(pots)} pot slots, cannot keep {num_pots} (balanced placement)"
                 )
-            cost = {c: self._soup_cost(static_objects, c) for c in candidates}
-            chosen = []
-            for _ in range(num_pots):
-                c = min(
-                    (c for c in candidates if c not in chosen),
-                    key=lambda c: (
-                        cost[c],
-                        -min((abs(c[0] - p[0]) + abs(c[1] - p[1]) for p in chosen), default=0),
-                        c,
-                    ),
+            cy, cx = (self.height - 1) / 2, (self.width - 1) / 2
+
+            def _imbalance(subset):
+                if not subset:
+                    return (0, 0.0, 0.0, 0.0, subset)
+                ys = np.array([p[0] for p in subset])
+                xs = np.array([p[1] for p in subset])
+                unmirrored = sum((y, self.width - 1 - x) not in subset for y, x in subset)
+                return (
+                    unmirrored,
+                    round(abs(xs.mean() - cx), 9),
+                    round(abs(ys.mean() - cy), 9),
+                    round(float(np.sum(np.abs(xs - cx) + np.abs(ys - cy))), 9),
+                    subset,
                 )
-                chosen.append(c)
-                static_objects[c] = StaticObject.POT
+
+            keep = set(min(itertools.combinations(pots, num_pots), key=_imbalance))
+            for pot in pots:
+                if pot not in keep:
+                    static_objects[pot] = StaticObject.WALL
             return dataclasses.replace(self, static_objects=static_objects)
 
         while len(_pots()) > num_pots:
@@ -655,4 +667,5 @@ overcooked_v2_layouts = {
     ),
     # Scaling Layouts
     "scaling_kitchen": Layout.from_string(scaling_kitchen, possible_recipes=[[0, 0, 0]]),
+    "scaling_stations": Layout.from_string(scaling_stations, possible_recipes=[[0, 0, 0]]),
 }

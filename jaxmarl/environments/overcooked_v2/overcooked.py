@@ -131,7 +131,7 @@ class OvercookedV2(MultiAgentEnv):
             pot_cook_time (int): Number of steps a pot takes to cook a soup.
             num_agents (Optional[int]): Number of agents. None uses the agents of the layout, otherwise agents are added to / removed from the layout (see Layout.with_num_agents).
             num_pots (Optional[int]): Number of pots. None uses the pots of the layout, otherwise pots are added to / removed from the layout (see Layout.with_num_pots).
-            pot_placement (str): How pots are chosen when num_pots is set: "spread" keeps the layout's pots and adds each new pot farthest from the existing ones; "nearest" uses the cells where a soup takes the fewest steps (see Layout.with_num_pots).
+            pot_placement (str): How pots are chosen when num_pots is set: "spread" keeps the layout's pots and adds each new pot farthest from the existing ones; "balanced" keeps the most centred of the layout's pot slots (for layouts of interchangeable slots such as scaling_stations; see Layout.with_num_pots).
             recipe_size (int): Number of ingredients in a soup (1-3). Pots hold at most this many ingredients and cook once full. If not 3, the layout's recipes are replaced by all recipes of this size (see Layout.with_recipe_size).
             order_size (Optional[int]): If set, the episode ends once this many correct soups have been delivered (or at max_steps, whichever comes first).
         """

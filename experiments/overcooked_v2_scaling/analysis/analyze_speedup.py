@@ -20,9 +20,9 @@ constant per condition, so it is bounded by T1 / max(W/n, C) <= T1 / C, and S*(1
 solo agent's efficiency. The actual speedup over the trained solo agent, T(1) / T(n), is
 plotted separately: it can exceed the bound when the solo agent is slower than optimal.
 
-Outputs (in results/order/figures/). The top-level figures show sweep_order.sh (as many
-pots as soups, spread placement); pots/ shows sweep_order_pots.sh (pots crossed with order
-size, nearest placement):
+Outputs (in results/order/figures/). The top-level figures show sweep_order.sh
+(scaling_kitchen, as many pots as soups); pots/ shows sweep_order_pots.sh (scaling_stations,
+pots crossed with order size):
   speedup_optimal_r{1,3}.png  S*(n) = T1*/T(n) vs agents (speedup over an optimal solo
                           agent); rows = order size K, columns = cook time; collisions off /
                           on against their own predictions (gray where collisions don't
@@ -30,12 +30,12 @@ size, nearest placement):
   speedup_actual_r{1,3}.png   the same for the actual speedup T(1)/T(n), over the trained
                           solo agent. All four speedup figures share one y-axis
   time_r{1,3}.png         the same for completion time (steps)
-  pots/{speedup_optimal,speedup_actual,time}_r{1,3}_c{5,20,60}.png
+  pots/{speedup_optimal,speedup_actual,time}_r1_c{5,20,60}.png
                           the same three kinds per recipe size and cook time, with
                           rows = order size K and columns = number of pots P
   ceiling.png             measured peak S* vs predicted ceiling T1/C, and the team size
                           reaching 90% of the peak vs the predicted knee
-  summary.csv             one row per condition (placement, P, K, r, T, collisions)
+  summary.csv             one row per condition (layout, placement, P, K, r, T, collisions)
 
 Usage: python analyze_speedup.py
 """
@@ -51,7 +51,7 @@ import pandas as pd
 
 RESULTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "results", "order")
 FIGURES = os.path.join(RESULTS, "figures")
-CONDITION = ["pot_placement", "num_pots", "order_size", "recipe_size", "pot_cook_time", "no_collision"]
+CONDITION = ["layout", "pot_placement", "num_pots", "order_size", "recipe_size", "pot_cook_time", "no_collision"]
 LEARNED = 0.5  # seeds with a lower completion rate never learned the task: excluded
 COMPLETE = 0.99  # completion rate (learned seeds) below which a point is drawn hollow (time is censored)
 
@@ -72,8 +72,9 @@ def load():
     seeds = pd.read_csv(os.path.join(RESULTS, "seeds.csv"))
     pred = pd.read_csv(os.path.join(RESULTS, "predictions.csv"))
     runs = runs[runs["selected"]]
-    if "pot_placement" not in runs:  # runs.csv from before pot placement was a factor
-        runs = runs.assign(pot_placement="spread")
+    for key, default in (("layout", "scaling_kitchen"), ("pot_placement", "spread")):
+        if key not in runs:  # runs.csv from before the key was a factor
+            runs = runs.assign(**{key: default})
     seeds = seeds[seeds["run_id"].isin(runs["run_id"])]
     return runs, seeds, pred
 
@@ -232,18 +233,19 @@ def main():
     onions = lambda r: f"recipe = {r} onion{'s' if r > 1 else ''}"
     soups = ("order_size", lambda K: f"K = {K} soup{'s' if K > 1 else ''}")
     kinds = {"optimal": (0, top), "actual": (0, top), "time": None}
-    # sweep_order.sh (P = K, spread pots): rows = order size, columns = cook time
-    diagonal = df[(df["pot_placement"] == "spread") & (df["num_pots"] == df["order_size"])]
+    # sweep_order.sh (scaling_kitchen, P = K, spread pots): rows = order size, columns = cook time
+    diagonal = df[(df["layout"] == "scaling_kitchen") & (df["pot_placement"] == "spread")
+                  & (df["num_pots"] == df["order_size"])]
     for r in sorted(diagonal["recipe_size"].unique()):
         for kind, ylim in kinds.items():
             print(grid(diagonal[diagonal.recipe_size == r], kind, soups, ("pot_cook_time", lambda T: f"cook time {T}"),
                        f"{onions(r)} (order of K soups, K pots)", os.path.join(FIGURES, f"{figure_name(kind)}_r{r}.png"), ylim))
-    # sweep_order_pots.sh (pots crossed with order size, nearest pots): rows = order size,
-    # columns = pots
-    for (r, T), d in df[df["pot_placement"] == "nearest"].groupby(["recipe_size", "pot_cook_time"]):
+    # sweep_order_pots.sh (scaling_stations, pots crossed with order size): rows = order
+    # size, columns = pots
+    for (r, T), d in df[df["layout"] == "scaling_stations"].groupby(["recipe_size", "pot_cook_time"]):
         for kind, ylim in kinds.items():
             print(grid(d, kind, soups, ("num_pots", lambda P: f"P = {P} pot{'s' if P > 1 else ''}"),
-                       f"{onions(r)}, cook time {T} (order of K soups, P pots, nearest first)",
+                       f"{onions(r)}, cook time {T} (workstation kitchen, order of K soups, P pots)",
                        os.path.join(FIGURES, "pots", f"{figure_name(kind)}_r{r}_c{T}.png"), ylim))
     summary = summarize(df)
     summary.to_csv(os.path.join(FIGURES, "summary.csv"), index=False)

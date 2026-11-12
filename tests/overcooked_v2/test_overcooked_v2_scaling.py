@@ -119,30 +119,42 @@ def _pot_cells(layout):
     return {(int(y), int(x)) for y, x in zip(*np.nonzero(layout.static_objects == StaticObject.POT))}
 
 
-def test_nearest_pots_cheapest_and_nested():
-    # Pots are chosen cheapest first, each set contains the previous one, and adding
-    # pots never adds a cheaper one
-    base = overcooked_v2_layouts["scaling_kitchen"]
-    empty = base.with_num_pots(0).static_objects
-    previous = set()
-    for num_pots in range(1, 11):
-        pots = _pot_cells(base.with_num_pots(num_pots, placement="nearest"))
-        assert len(pots) == num_pots and previous <= pots
-        (new,) = pots - previous
-        costs = [Layout._soup_cost(empty, p) for p in previous]
-        assert all(Layout._soup_cost(empty, new) >= c for c in costs)
-        previous = pots
-    # the first two pots are the two cheapest (mirror-image) cells, one per side
-    two = _pot_cells(base.with_num_pots(2, placement="nearest"))
-    assert two == {(0, 1), (0, 10)}
+def test_station_pots_cost_the_same():
+    # Every pot slot of scaling_stations takes the same number of steps per soup
+    layout = overcooked_v2_layouts["scaling_stations"]
+    pots = _pot_cells(layout)
+    assert len(pots) == 10
+    empty = layout.with_num_pots(0, placement="balanced").static_objects
+    for ingredients in (1, 3):
+        assert len({Layout._soup_cost(empty, p, ingredients) for p in pots}) == 1
 
 
-def test_nearest_pots_via_env():
-    env = OvercookedV2(layout="scaling_kitchen", num_agents=3, num_pots=4, pot_placement="nearest")
-    assert _num_pots(env.layout.static_objects) == 4
+@pytest.mark.parametrize(
+    "num_pots, expected",
+    [
+        (1, {(0, 11)}),
+        (2, {(0, 11), (4, 11)}),
+        (5, {(0, 7), (0, 11), (0, 15), (4, 7), (4, 15)}),
+        (10, {(y, x) for y in (0, 4) for x in (3, 7, 11, 15, 19)}),
+    ],
+)
+def test_balanced_pots(num_pots, expected):
+    # The most centred, left-right symmetric pot slots are kept; the others become counters
+    layout = overcooked_v2_layouts["scaling_stations"]
+    new = layout.with_num_pots(num_pots, placement="balanced")
+    assert _pot_cells(new) == expected
+    removed = _pot_cells(layout) - expected
+    assert all(new.static_objects[p] == StaticObject.WALL for p in removed)
+
+
+def test_balanced_pots_via_env():
+    env = OvercookedV2(layout="scaling_stations", num_agents=10, num_pots=5, pot_placement="balanced", recipe_size=1)
+    assert _num_pots(env.layout.static_objects) == 5
     _rollout(env)
+    with pytest.raises(ValueError):  # more pots than slots
+        OvercookedV2(layout="scaling_stations", num_pots=11, pot_placement="balanced")
     with pytest.raises(ValueError):
-        OvercookedV2(layout="scaling_kitchen", num_pots=2, pot_placement="closest")
+        OvercookedV2(layout="scaling_stations", num_pots=2, pot_placement="nearest")
 
 
 def test_too_many_raises():

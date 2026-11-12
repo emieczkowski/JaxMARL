@@ -204,15 +204,37 @@ A configuration may have several runs (a failed run and its rerun, in different 
 
 **First launch (group `OV2_order_6712a70_20261029_133840`):** all 48 ten-agent jobs (indices 432–479) hit the 6-hour limit; they need about 6.5 hours, and the limit is now 9 hours. All other configurations finished. (78 runs first looked failed because they were synced mid-training and older `sync.sh` did not upload their later data; `sync.sh` now passes `--include-synced` to `wandb sync`.)
 
-# Pots × order sweep
+# Pots × order sweep (workstation kitchen)
 
-The order sweep ties the number of pots to the order size (P = K), so more work to share and more capacity to share it change together. `sweep_order_pots.sh` crosses them: agents 1–10 × **pots P ∈ {1, 2, 5, 10} × order size K ∈ {1, 2, 5, 10}** × cook time {5, 20, 60} × collisions on/off, with the **1-onion recipe only**: 10 × 4 × 4 × 3 × 2 = **960 configurations × 5 seeds**. Same config (`ippo_rnn_overcooked_v2_order.yaml`), same W&B project, W&B group `OV2_order_pots_<git hash>_<timestamp>`; run names end in `_nearest`.
+The order sweep ties the number of pots to the order size (P = K), so more work to share and more capacity to share it change together, and in `scaling_kitchen` pots also differ in how far they are from the piles: one 1-onion soup takes 16 to 32 steps depending on the pot, and adding pots brought closer pots. `sweep_order_pots.sh` fixes both: a new layout where every pot costs the same, with pots and order size crossed.
 
-- **K < P:** spare pots. **K > P:** pots must be reused, so cooking becomes the bottleneck (the critical path C grows with K / P).
-- **Pot placement (`ENV_KWARGS.pot_placement`).** The scaling and order sweeps used `spread`: starting from the layout's pot at (5,0), each new pot goes on the counter farthest from the existing ones. That pot is one of the most expensive cells in the room (56 steps for one 3-onion soup, against 28 for the cheapest), and later pots are often closer, so adding pots also brought pots closer: the optimal solo time for one 3-onion soup (cook time 20) was 63 steps with 1 pot and 42 with 10. This sweep uses `nearest`: pots go on the cells where one soup takes the fewest steps (`Layout._soup_cost`, movement and turning as in the env), in the order (1,0), (10,0), (0,1), (11,1), (2,0), (9,0), (1,6), (10,6), (0,5), (11,5) (costs 28, 28, 32 ×4, 34, 34, 38, 38 for 3 onions). The cheapest pot is the same for every P, so the optimal solo time for one soup is 42 steps for every P, and P changes capacity only.
-  - Exactly equal distances are impossible beyond 4 pots: equal-cost cells come in mirror-image groups of up to 4.
-  - The two cheapest cells are on opposite sides of the room, so with P = 2 a solo agent gains little from the second pot unless cooking is long. Teams can use both.
-- **All 960 jobs run.** Pot positions differ from the order sweep for every P, so none of its runs are reused, including the P = K ones.
+## Design
+
+Agents 1–10 × **pots P ∈ {1, 2, 5, 10}** × **order size K ∈ {1, 2, 5, 10}** × cook time {5, 20, 60} × collisions on/off, **1-onion recipe only**: 10 × 4 × 4 × 3 × 2 = **960 configurations × 5 seeds**. Config `ippo_rnn_overcooked_v2_order.yaml` with `ENV_KWARGS.layout=scaling_stations` and `ENV_KWARGS.pot_placement=balanced`; same W&B project as the order sweep, group `OV2_order_pots_<git hash>_<timestamp>`, run names `ippo_rnn_overcooked_v2_scaling_stations_a{agents}_p{pots}_c{cook}_r1_o{order}_balanced[_nocoll]`.
+
+## Layout: `scaling_stations`
+
+```
+WX0PBX0PBX0PBX0PBX0PBXW      0 onion pile   P pot slot   B plate pile
+W                     W      X delivery     W counter    A agent start
+W          A          W
+W                     W      interior 21 × 3
+WX0PBX0PBX0PBX0PBX0PBXW
+```
+
+- Ten identical **workstations**, five on each long wall: onion pile, pot slot and plate pile side by side, with a delivery cell two steps away on each side (the extra delivery cells at both ends give the outer stations the same neighbours). One soup takes **16 steps at every pot** (28 for 3 onions).
+- **`pot_placement=balanced`**: P of the 10 slots are pots, the rest plain counters. It keeps the most balanced slots: left-right symmetric first, then centroid closest to the room centre, then closest to the centre overall, then top first. Coordinates (x, y), origin top-left:
+  - P = 1: (11,0), top centre, directly above the agents' start
+  - P = 2: (11,0), (11,4)
+  - P = 5: (7,0), (11,0), (15,0), (7,4), (15,4) (5 cannot split evenly between the walls)
+  - P = 10: all slots
+
+  The sets are not nested: P = 5 does not contain (11,4).
+- **Piles and delivery cells stay at every station whatever P is**: 10 onion piles, 10 plate piles and 12 delivery cells. P changes pots only, and queues at piles are rare, so pots and cooking are the main shared constraint. A station without a pot still serves as a source of onions and plates.
+- Agents start in fixed positions (`Layout.with_num_agents`): the first at the centre, each next one on the free cell farthest from those already placed.
+- A different kitchen from the scaling and order sweeps: results are not directly comparable with theirs.
+
+## Running
 
 ```bash
 SWEEP=sweep_order_pots.sh ./submit.sh --list      # job index -> configuration
@@ -221,6 +243,21 @@ SWEEP=sweep_order_pots.sh ./submit.sh             # all 960 jobs
 ./sync.sh <RUN_DIR>
 ```
 
-`fetch_order_results.py` keeps `pot_placement` as a configuration key (`spread` for runs from before it existed), checks completeness against this grid (`sweep_index` refers to `sweep_order_pots.sh`) and prints the jobs that still need a run.
+The SLURM time limit is now 12 hours (`run.slurm`): 10 agents needed about 6.5 hours in `scaling_kitchen`, and this grid is larger (23 × 5 cells against 12 × 7).
 
-Analysis: `analysis/amdahl_predictions.py` computes T1, W and C for both placements and every (P, K) (run from the repo root with `PYTHONPATH=.`). `analysis/analyze_speedup.py` writes the order sweep's figures as before (spread, P = K) and, once this sweep's runs are downloaded, `results/order/figures/pots/`: one figure per cook time (`*_r1_c{5,20,60}.png`), rows = K, columns = P.
+`fetch_order_results.py` keeps `layout` and `pot_placement` as configuration keys (`spread` for runs from before the key existed), checks completeness against this sweep's grid (`sweep_index` refers to `sweep_order_pots.sh`) and prints the jobs that still need a run.
+
+## Analysis
+
+`analysis/amdahl_predictions.py` computes T1, W and C for both kitchens and every (P, K) (run from the repo root with `PYTHONPATH=.`; it takes about 6 minutes). Its solo planner searches over which pots to rotate through, since equal-cost pots still differ in how far apart they are. `analysis/analyze_speedup.py` writes the order sweep's figures as before (`scaling_kitchen`, P = K) and, once this sweep's runs are downloaded, `results/order/figures/pots/{time,speedup_optimal,speedup_actual}_r1_c{5,20,60}.png`, with rows = K and columns = P.
+
+Predicted optimal solo time T1 (steps; recipe 1; collisions do not change it):
+
+| | cook 5: P = 1, 2, 5, 10 | cook 20 | cook 60 |
+|---|---|---|---|
+| K = 1 | 16, 16, 16, 16 | 30, 30, 30, 30 | 70, 70, 70, 70 |
+| K = 2 | 32, 32, 32, 32 | 60, 43, 40, 40 | 140, 83, 80, 80 |
+| K = 5 | 80, 80, 80, 80 | 150, 94, 96, 94 | 350, 210, 121, 121 |
+| K = 10 | 160, 160, 160, 160 | 300, 179, 181, 179 | 700, 367, 245, 245 |
+
+Labour is the same at every pot, so a solo agent gains from more pots only by cooking several soups at once: never with cook time 5, where one soup's labour (16 steps) exceeds the cooking time.

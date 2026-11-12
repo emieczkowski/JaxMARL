@@ -3,9 +3,11 @@
 # number of pots always equals the order size K; here they vary independently: K sets the
 # total work, the number of pots P how many soups can cook at once (pots are reused when
 # K > P, some sit idle when K < P).
-# Pots are placed nearest first (pot_placement=nearest: the cells where a soup takes the
-# fewest steps), so adding pots adds capacity without bringing a pot closer. sweep_order.sh
-# used the spread placement, so none of its runs are reused: all jobs run.
+# Layout scaling_stations: ten identical workstations (onion pile, pot slot, plate pile,
+# delivery cells), so a soup takes the same number of steps at every pot and the number of
+# pots changes capacity only. pot_placement=balanced keeps the most centred, left-right
+# symmetric pot slots; the others become counters. A different kitchen from sweep_order.sh,
+# so none of its runs are reused: all jobs run.
 # Each job trains NUM_SEEDS (=5, see ippo_rnn_overcooked_v2_order.yaml) vmapped seeds.
 
 CONFIG_NAME=ippo_rnn_overcooked_v2_order
@@ -33,8 +35,9 @@ decode_job() {
   n_agents=${AGENTS[idx]}
   JOB_ARGS=(
     ENV_KWARGS.num_agents="$n_agents"
+    ENV_KWARGS.layout=scaling_stations
     ENV_KWARGS.num_pots="$pots"
-    ENV_KWARGS.pot_placement=nearest
+    ENV_KWARGS.pot_placement=balanced
     ENV_KWARGS.order_size="$order"
     ENV_KWARGS.pot_cook_time="$cook"
     ENV_KWARGS.recipe_size="$recipe"

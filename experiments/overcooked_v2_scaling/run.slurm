@@ -4,7 +4,7 @@
 #SBATCH --constraint=gpu80            # 10 agents x 5 vmapped seeds needs ~28 GiB of GPU memory
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
-#SBATCH --time=9:00:00             # 10 agents need ~6.5 h for training
+#SBATCH --time=12:00:00            # 10 agents need ~6.5 h in scaling_kitchen; scaling_stations has a larger grid
 
 # One array task = one sweep configuration (5 vmapped seeds). Submitted by submit.sh,
 # which sets RUN_DIR, GIT_HASH, CONDA_ENV and SWEEP (the sweep file).
